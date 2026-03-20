@@ -2,6 +2,8 @@ const axios = require('axios');
 
 // 🧠 Per-user conversational memory
 const conversationMemory = new Map();
+// 🔒 Per-user active generation lock
+const userBusy = new Map();
 
 // 💣 Per-user lock (fixes spam issue)
 const userBusy = new Map();
@@ -44,9 +46,6 @@ const FALLBACK_MESSAGES = [
 
 async function generateAIResponse(userId, userMessage) {
 
-    // 💅 per-user lock (fixes spam issue)
-    if (userBusy.get(userId)) {
-        return "wait… let me think 😭";
     }
 
     userBusy.set(userId, true);
@@ -57,28 +56,23 @@ async function generateAIResponse(userId, userMessage) {
 
         history.push({ role: 'user', content: userMessage });
 
-        // 🔥 keep memory SMALL (performance fix)
-        if (history.length > 4) {
-            history = history.slice(-4);
+
         }
+
+        const moods = ["normal", "annoyed", "clingy"];
+        const mood = moods[Math.floor(Math.random() * moods.length)];
 
         const response = await axios.post(
             'http://localhost:11434/api/chat',
             {
                 model: "phi", // 💣 switched to fast model
                 messages: [
-                    { role: "system", content: SYSTEM_PROMPT },
+                    { role: "system", content: SYSTEM_PROMPT + `\n\nCURRENT MOOD: ${mood}\nLet this mood subtly influence your next reply.` },
                     ...history
                 ],
                 stream: false,
                 options: {
-                    temperature: 1.0,
-                    top_p: 0.9,
-                    num_ctx: 384,
-                    num_predict: 30
-                }
-            },
-            { timeout: 45000 } // 💅 reduced timeout
+
         );
 
         let reply = response?.data?.message?.content?.trim();

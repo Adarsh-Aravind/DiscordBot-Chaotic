@@ -105,11 +105,14 @@ module.exports = {
             return message.reply("Use words. I'm not decoding silence.");
         }
 
+        if (Math.random() < 0.15) return;      // 👻 15% chance to just leave them on read
+
         // =========================
         // AI RESPONSE
         // =========================
         try {
             await message.channel.sendTyping();
+            await new Promise(res => setTimeout(res, 800 + Math.random() * 1200)); // ⏳ Human-like typing delay
 
             const response = await generateAIResponse(message.author.id, cleanContent);
 
