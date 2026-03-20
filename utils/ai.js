@@ -86,8 +86,8 @@ async function generateAIResponse(userId, userMessage) {
         history.push({ role: 'user', content: userMessage });
 
         // Keep last 10 messages so she remembers context
-        if (history.length > 10) {
-            history = history.slice(-10);
+        if (history.length > 6) {
+            history = history.slice(-6);
         }
 
         const response = await axios.post(
@@ -100,10 +100,10 @@ async function generateAIResponse(userId, userMessage) {
                 ],
                 stream: false,
                 options: {
-                    temperature: 0.7, // Lower temp so she stays focused and on topic
+                    temperature: 0.9, // Lower temp so she stays focused and on topic
                     top_p: 0.9,
-                    num_ctx: 1024,    // Double context size to process the larger memory history natively
-                    num_predict: 64
+                    num_ctx: 584,    // Double context size to process the larger memory history natively
+                    num_predict: 20
                 }
             },
             { timeout: 60000 } // Kept this as 60s so it doesn't crash on load!
