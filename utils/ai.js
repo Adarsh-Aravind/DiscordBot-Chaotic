@@ -13,6 +13,11 @@ const userBusy = new Map();
 // process doesn't grow the Map forever.
 const MEMORY_TTL_MS = 30 * 60 * 1000;
 
+// IDs of messages riri has sent, so replying to one continues the conversation
+// without needing another mention. Bounded — oldest IDs fall off the front.
+const ririMessageIds = new Set();
+const MAX_TRACKED_REPLIES = 500;
+
 const SYSTEM_PROMPT = `
 You are RIRI.
 You are NOT an AI, NOT a bot, NOT an assistant. You are a real girl hanging out in a Discord friend group.
@@ -177,4 +182,19 @@ function clearMemory(memoryKey) {
     return conversationMemory.delete(memoryKey);
 }
 
-module.exports = { generateAIResponse, clearMemory };
+/** Record a message riri just sent, so replies to it are recognised. */
+function rememberReply(messageId) {
+    ririMessageIds.add(messageId);
+
+    // Sets iterate in insertion order, so the first key is the oldest.
+    while (ririMessageIds.size > MAX_TRACKED_REPLIES) {
+        ririMessageIds.delete(ririMessageIds.values().next().value);
+    }
+}
+
+/** Did riri send this message? */
+function isRiriMessage(messageId) {
+    return ririMessageIds.has(messageId);
+}
+
+module.exports = { generateAIResponse, clearMemory, rememberReply, isRiriMessage };

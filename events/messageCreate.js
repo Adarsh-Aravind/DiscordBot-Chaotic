@@ -1,5 +1,5 @@
 const config = require('../utils/config');
-const { generateAIResponse } = require('../utils/ai');
+const { generateAIResponse, rememberReply, isRiriMessage } = require('../utils/ai');
 
 // Matches a leading mention of the bot: <@id> or <@!id>, optionally after
 // whitespace. Anything after it is what the user actually said to riri.
@@ -9,26 +9,60 @@ function stripLeadingMention(content, botId) {
     return content.slice(match[0].length).trim();
 }
 
-async function handleRiriMention(message, client) {
-    const prompt = stripLeadingMention(message.content, client.user.id);
-    if (prompt === null) return false;
+// Is this message a Discord reply to something riri said?
+async function isReplyToRiri(message, client) {
+    const referencedId = message.reference?.messageId;
+    if (!referencedId) return false;
+
+    // Fast path — we sent it this process lifetime.
+    if (isRiriMessage(referencedId)) return true;
+
+    // Slow path — covers messages sent before the last restart, when the
+    // tracked-ID set was empty. Embeds are excluded so replying to a command's
+    // output (.help, .hof) doesn't drag riri into it.
+    try {
+        const referenced = await message.fetchReference();
+        return referenced.author.id === client.user.id && referenced.embeds.length === 0;
+    } catch {
+        return false; // deleted, or not fetchable
+    }
+}
+
+// Returns what the user said to riri, or null if she wasn't being addressed.
+async function resolveRiriPrompt(message, client) {
+    // Trigger 1: message starts by mentioning her.
+    const mentioned = stripLeadingMention(message.content, client.user.id);
+    if (mentioned !== null) return mentioned || 'hey';
+
+    // Trigger 2: message is a reply to one of hers. Commands still win, so
+    // `.forget` while replying to riri runs the command instead.
+    if (message.content.startsWith(config.prefix)) return null;
+    if (await isReplyToRiri(message, client)) return message.content.trim() || 'hey';
+
+    return null;
+}
+
+async function handleRiriChat(message, client) {
+    const text = await resolveRiriPrompt(message, client);
+    if (text === null) return false;
 
     if (!config.ai.enabled) {
-        console.warn('[AI] Bot was mentioned but GROQ_API_KEY is not set.');
+        console.warn('[AI] Riri was addressed but GROQ_API_KEY is not set.');
         return false;
     }
 
-    // "@riri" with nothing after it still deserves a reply.
-    const text = prompt || 'hey';
     const memoryKey = `${message.channel.id}:${message.author.id}`;
 
     try {
         await message.channel.sendTyping().catch(() => {});
         const reply = await generateAIResponse(memoryKey, text);
-        await message.reply({
+        const sent = await message.reply({
             content: reply,
             allowedMentions: { repliedUser: true, parse: [] }
         });
+
+        // So replying to this one keeps the conversation going.
+        rememberReply(sent.id);
     } catch (err) {
         console.error('[AI REPLY ERROR]', err);
     }
@@ -94,7 +128,7 @@ module.exports = {
         // =========================
         // RIRI — mention to talk to her
         // =========================
-        if (await handleRiriMention(message, client)) return;
+        if (await handleRiriChat(message, client)) return;
 
         // =========================
         // COMMAND HANDLING

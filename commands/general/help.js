@@ -59,7 +59,8 @@ module.exports = {
         embed.addFields({
             name: '✨ Passive Features',
             value:
-                `Mention <@${client.user.id}> at the start of a message to chat with **riri**.\n` +
+                `Mention <@${client.user.id}> at the start of a message to chat with **riri** — ` +
+                'after that just reply to her messages to keep talking.\n' +
                 'Reacts to messages from a certain someone with 🇬 🇦 🇾 combinations!',
             inline: false
         });
