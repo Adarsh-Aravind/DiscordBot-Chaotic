@@ -1,12 +1,14 @@
 const { EmbedBuilder } = require('discord.js');
+const { isAuthorized } = require('../../utils/permissions');
+const config = require('../../utils/config');
 
 module.exports = {
     name: 'hof',
+    guildOnly: true,
+    restricted: true,
     description: 'Adds the replied message to the Hall of Fame.',
     async execute(message, args, client) {
-        const allowedRoleId = '1322261748895711353';
-        const allowedUserId = '1135904133145178242';
-        if (!message.member.roles.cache.has(allowedRoleId) && message.author.id !== allowedUserId) {
+        if (!isAuthorized(message)) {
             return message.reply('❌ You do not have permission to use this command.');
         }
 
@@ -14,7 +16,7 @@ module.exports = {
             return message.reply('❌ You must reply to a message to add it to the Hall of Fame!');
         }
 
-        const channelId = '1488848396298096692';
+        const channelId = config.hallOfFameChannelId;
 
         try {
             const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);

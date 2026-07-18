@@ -1,12 +1,12 @@
-const { PermissionsBitField } = require('discord.js');
+const { isAuthorized } = require('../../utils/permissions');
 
 module.exports = {
     name: 'kick',
+    guildOnly: true,
+    restricted: true,
     description: 'Kicks a member from the server.',
     async execute(message, args) {
-        const allowedRoleId = '1322261748895711353';
-        const allowedUserId = '1135904133145178242';
-        if (!message.member.roles.cache.has(allowedRoleId) && message.author.id !== allowedUserId) {
+        if (!isAuthorized(message)) {
             return message.reply('You do not have permission to use this command.');
         }
 

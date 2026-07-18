@@ -32,7 +32,13 @@ function getCircuitImageUrl(circuitId) {
         interlagos: 'Brazil_Circuit.png', vegas: 'Las_Vegas_Circuit.png',
         losail: 'Qatar_Circuit.png', yas_marina: 'Abu_Dhabi_Circuit.png'
     };
-    return `${baseUrl}/${mapping[circuitId] || 'Australia_Circuit.png'}`;
+    // Unknown circuit (e.g. a newly added venue like madring/Madrid): return null
+    // so the embed simply omits the image, rather than showing the wrong track.
+    if (!mapping[circuitId]) {
+        console.warn(`[F1] No circuit map image for "${circuitId}" — add it to f1Helper.js`);
+        return null;
+    }
+    return `${baseUrl}/${mapping[circuitId]}`;
 }
 
 async function getDriverStandings() {

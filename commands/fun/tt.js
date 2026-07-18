@@ -1,5 +1,6 @@
-// Using the working repo you found!
-// We point to the raw version of the user's `preload.js` file which contains the giant list of insults.
+const { isAuthorized } = require('../../utils/permissions');
+
+// We point to the raw version of the upstream `preload.js` file, which contains the giant list of insults.
 const rawUrl = "https://raw.githubusercontent.com/daviseford/trashtalk_generator/master/src/preload.js";
 let cache = [];
 
@@ -69,9 +70,11 @@ fetchInsults();
 
 module.exports = {
     name: 'tt',
+    guildOnly: true,
+    restricted: true,
     description: 'External Scraped Trash Talk. Usage: .tt | .tt reload',
     async execute(message, args) {
-        if (!message.member.roles.cache.has('1322261748895711353')) {
+        if (!isAuthorized(message)) {
             return message.reply("Sit down kid, you don't have permission for this.");
         }
 

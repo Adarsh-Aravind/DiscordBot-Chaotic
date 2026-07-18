@@ -1,12 +1,12 @@
-const { PermissionsBitField } = require('discord.js');
+const { isAuthorized } = require('../../utils/permissions');
 
 module.exports = {
     name: 'mute',
+    guildOnly: true,
+    restricted: true,
     description: 'Timeouts a member for a specified duration.',
     async execute(message, args) {
-        const allowedRoleId = '1322261748895711353';
-        const allowedUserId = '1135904133145178242';
-        if (!message.member.roles.cache.has(allowedRoleId) && message.author.id !== allowedUserId) {
+        if (!isAuthorized(message)) {
             return message.reply('You do not have permission to use this command.');
         }
 
@@ -20,8 +20,13 @@ module.exports = {
         const durationStr = args[1] || '10'; // Default 10 minutes
         const durationMin = parseInt(durationStr, 10);
 
-        if (isNaN(durationMin)) {
+        if (isNaN(durationMin) || durationMin <= 0) {
             return message.reply('Please provide a valid duration in minutes.');
+        }
+
+        // Discord caps timeouts at 28 days; anything longer is rejected by the API.
+        if (durationMin > 28 * 24 * 60) {
+            return message.reply('Discord only allows timeouts up to 28 days (40320 minutes).');
         }
 
         const durationMs = durationMin * 60 * 1000;

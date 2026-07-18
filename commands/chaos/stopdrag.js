@@ -1,14 +1,15 @@
 const stateManager = require('../../utils/stateManager');
 const roastManager = require('../../utils/roastManager');
+const { isAuthorized } = require('../../utils/permissions');
 
 module.exports = {
     name: 'stopdrag',
+    guildOnly: true,
+    restricted: true,
     description: 'Manually stops dragging a user and returns them to their original channel.',
     async execute(message, args) {
-        const allowedRoleId = '1322261748895711353';
-        const allowedUserId = '1135904133145178242';
-        if (!message.member.roles.cache.has(allowedRoleId) && message.author.id !== allowedUserId) {
-            const roast = roastManager.getRandomRoast();
+        if (!isAuthorized(message)) {
+            const roast = roastManager.getRandomRoast(message.guild?.id);
             return message.reply(`You are not authorized to stop the chaos. ${roast}`);
         }
 

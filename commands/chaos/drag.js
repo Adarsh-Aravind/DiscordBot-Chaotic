@@ -1,15 +1,17 @@
 const { PermissionsBitField } = require('discord.js');
 const stateManager = require('../../utils/stateManager');
 const roastManager = require('../../utils/roastManager');
+const { isAuthorized } = require('../../utils/permissions');
+const config = require('../../utils/config');
 
 module.exports = {
     name: 'drag',
+    guildOnly: true,
+    restricted: true,
     description: 'Drags a self-muted or self-deafened user randomly across voice channels.',
     async execute(message, args) {
-        const allowedRoleId = '1322261748895711353';
-        const allowedUserId = '1135904133145178242';
-        if (!message.member.roles.cache.has(allowedRoleId) && message.author.id !== allowedUserId) {
-            const roast = roastManager.getRandomRoast();
+        if (!isAuthorized(message)) {
+            const roast = roastManager.getRandomRoast(message.guild?.id);
             return message.reply(`Nice try, but you don't have the permissions. ${roast}`);
         }
 
@@ -78,7 +80,7 @@ module.exports = {
                 clearInterval(intervalId);
                 stateManager.remove(target.id);
             }
-        }, 2500); // 2.5 seconds
+        }, config.dragIntervalMs);
 
         // Save state
         stateManager.set(target.id, {
