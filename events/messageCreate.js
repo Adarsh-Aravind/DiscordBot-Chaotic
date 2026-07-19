@@ -1,5 +1,6 @@
 const config = require('../utils/config');
 const { generateAIResponse, rememberReply, isRiriMessage } = require('../utils/ai');
+const reactionManager = require('../utils/reactionManager');
 
 // Matches a leading mention of the bot: <@id> or <@!id>, optionally after
 // whitespace. Anything after it is what the user actually said to riri.
@@ -162,7 +163,7 @@ module.exports = {
         // =========================
         // CUSTOM REACTIONS
         // =========================
-        if (!isCommandHandled && message.author.id === config.reactionUserId) {
+        if (!isCommandHandled && reactionManager.isTarget(message.author.id)) {
             try {
                 for (const emoji of config.reactionEmojis) {
                     await message.react(emoji);

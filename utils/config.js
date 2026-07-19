@@ -17,7 +17,8 @@ module.exports = {
     // Where .hof posts messages.
     hallOfFameChannelId: process.env.HOF_CHANNEL_ID || '1488848396298096692',
 
-    // Passive reaction: this user's messages get spelled at.
+    // Passive reaction: this user's messages get spelled at. Only the starting
+    // point — `.gay @user` toggles targets at runtime (see reactionManager).
     reactionUserId: process.env.REACTION_USER_ID || '753892329982787624',
     reactionEmojis: ['🇬', '🇦', '🇾'],
 

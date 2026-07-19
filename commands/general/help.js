@@ -61,7 +61,7 @@ module.exports = {
             value:
                 `Mention <@${client.user.id}> at the start of a message to chat with **riri** — ` +
                 'after that just reply to her messages to keep talking.\n' +
-                'Reacts to messages from a certain someone with 🇬 🇦 🇾 combinations!',
+                `Reacts to messages from a certain someone with 🇬 🇦 🇾 — toggle who with \`${config.prefix}gay @user\`.`,
             inline: false
         });
 
