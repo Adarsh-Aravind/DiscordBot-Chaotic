@@ -1,7 +1,7 @@
 const { ActivityType } = require('discord.js');
 
 /**
- * Rotating "Playing <game>" presence.
+ * Rotating bot presence, one line per hour.
  *
  * Note: Discord ignores application_id/assets/timestamps on bot presence updates,
  * so the game artwork and elapsed timer real users get are not achievable here —
@@ -10,13 +10,19 @@ const { ActivityType } = require('discord.js');
 
 const ROTATION_MS = 60 * 60 * 1000; // 1 hour
 
-const GAMES = [
-    'VALORANT',
-    'Forza Horizon 6',
-    'Phasmophobia',
-    'Meccha Chameleon',
-    'Minecraft',
-    'GTA V',
+// Cheesy on purpose. Mixed activity types read better than forcing "Playing"
+// onto every joke — "Competing in hardstuck purgatory" lands, "Playing" it doesn't.
+const STATUSES = [
+    { type: ActivityType.Competing, name: 'hardstuck purgatory' },
+    { type: ActivityType.Watching, name: 'the Crusaders climb (slowly)' },
+    { type: ActivityType.Playing, name: 'Hardstuck Simulator 2026' },
+    { type: ActivityType.Competing, name: 'ranked, losing gracefully' },
+    { type: ActivityType.Watching, name: 'one more game (it is 4am)' },
+    { type: ActivityType.Listening, name: 'enemy team mic feedback' },
+    { type: ActivityType.Playing, name: 'aim trainer, missing anyway' },
+    { type: ActivityType.Watching, name: 'Crusaders content in glorious 4K' },
+    { type: ActivityType.Competing, name: 'the Hardstuck Invitational' },
+    { type: ActivityType.Playing, name: 'support diff: the movie' },
 ];
 
 /**
@@ -25,13 +31,13 @@ const GAMES = [
  * the same slot it would have been on had it never gone down.
  */
 function currentIndex() {
-    return Math.floor(Date.now() / ROTATION_MS) % GAMES.length;
+    return Math.floor(Date.now() / ROTATION_MS) % STATUSES.length;
 }
 
 function apply(client) {
-    const game = GAMES[currentIndex()];
-    client.user.setActivity(game, { type: ActivityType.Playing });
-    console.log(`[presence] Playing ${game}`);
+    const status = STATUSES[currentIndex()];
+    client.user.setActivity(status.name, { type: status.type });
+    console.log(`[presence] ${status.name}`);
 }
 
 /**
@@ -49,4 +55,4 @@ function start(client) {
     }, msUntilNextSlot);
 }
 
-module.exports = { start, GAMES };
+module.exports = { start, STATUSES };

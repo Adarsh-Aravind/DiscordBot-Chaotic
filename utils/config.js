@@ -66,5 +66,36 @@ module.exports = {
         get enabled() {
             return this.channelIds.length > 0 && Boolean(this.announceChannelId);
         }
+    },
+
+    // Twitch go-live notifications. Unlike YouTube there's no public feed, so
+    // this needs an app registered at dev.twitch.tv (client id + secret).
+    twitch: {
+        clientId: process.env.TWITCH_CLIENT_ID || '',
+        clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
+
+        // Twitch logins (the name in the URL), comma-separated in .env.
+        logins: (process.env.TWITCH_LOGINS || [
+            'r0gue___',
+            'srgamerog'
+        ].join(','))
+            .split(',')
+            .map(name => name.trim().toLowerCase())
+            .filter(Boolean),
+
+        announceChannelId: process.env.TWITCH_ANNOUNCE_CHANNEL_ID || '1162427835059806299',
+
+        // One call covers every streamer, so 2 minutes is cheap and catches
+        // go-lives quickly. Helix allows far more than this.
+        pollIntervalMs: Number(process.env.TWITCH_POLL_INTERVAL_MS) || 2 * 60 * 1000,
+
+        get enabled() {
+            return (
+                Boolean(this.clientId) &&
+                Boolean(this.clientSecret) &&
+                this.logins.length > 0 &&
+                Boolean(this.announceChannelId)
+            );
+        }
     }
 };

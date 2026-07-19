@@ -1,4 +1,5 @@
 const youtubeWatcher = require('../utils/youtubeWatcher');
+const twitchWatcher = require('../utils/twitchWatcher');
 const presenceManager = require('../utils/presenceManager');
 
 module.exports = {
@@ -9,5 +10,6 @@ module.exports = {
         presenceManager.start(client);
 
         youtubeWatcher.start(client);
+        twitchWatcher.start(client);
     },
 };
