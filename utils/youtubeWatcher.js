@@ -155,8 +155,11 @@ async function checkOnce(client, { announceFirstRun = false } = {}) {
             for (const video of toPost) {
                 try {
                     await target.send({
-                        content: `📺 **${video.author}** just uploaded!\n${video.url}`,
-                        embeds: [buildEmbed(video)]
+                        content: `@everyone 📺 **${video.author}** just uploaded!\n${video.url}`,
+                        embeds: [buildEmbed(video)],
+                        // Explicit, so the ping can't be widened by a video title
+                        // that happens to contain a mention.
+                        allowedMentions: { parse: ['everyone'] }
                     });
                     result.posted++;
                     console.log(`[YouTube] Announced "${video.title}" by ${video.author}.`);
