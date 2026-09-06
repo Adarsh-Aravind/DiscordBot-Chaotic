@@ -108,6 +108,15 @@ function evaluate(state, now = Date.now(), random = Math.random) {
     return { due: true, silentMs, line: pick(tierFor(silentMs).lines, random) };
 }
 
+/**
+ * How long since the partner last said anything, or null if we have never seen
+ * him. Riri's replies use this so she only feels ignored when she actually is.
+ */
+function silentMs(now = Date.now()) {
+    const { lastSeenAt } = loadState();
+    return lastSeenAt ? now - lastSeenAt : null;
+}
+
 /** Record that the partner said something. Resets the clock. */
 function noteActivity(message) {
     if (!config.clingy.enabled) return;
@@ -188,4 +197,4 @@ function stop() {
     }
 }
 
-module.exports = { start, stop, check, evaluate, noteActivity, tierFor, TIERS, STATE_FILE };
+module.exports = { start, stop, check, evaluate, noteActivity, silentMs, tierFor, TIERS, STATE_FILE };

@@ -57,7 +57,8 @@ async function handleRiriChat(message, client) {
         await message.channel.sendTyping().catch(() => {});
         const reply = await generateAIResponse(memoryKey, text, {
             isPartner: message.author.id === config.ai.partnerUserId,
-            speakerName: message.member?.displayName || message.author.username
+            speakerName: message.member?.displayName || message.author.username,
+            alphaSilentMs: clingyWatcher.silentMs()
         });
         const sent = await message.reply({
             content: reply,
@@ -90,7 +91,8 @@ async function handleInterjection(message) {
             text,
             {
                 isPartner: message.author.id === config.ai.partnerUserId,
-                speakerName: message.member?.displayName || message.author.username
+                speakerName: message.member?.displayName || message.author.username,
+                alphaSilentMs: clingyWatcher.silentMs()
             }
         );
         const sent = await message.reply({

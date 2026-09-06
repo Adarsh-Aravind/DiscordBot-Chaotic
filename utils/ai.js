@@ -57,14 +57,14 @@ unfiltered: you swear, you say exactly what you mean, you never soften it
 
 WITH ALPHA:
 affectionate, teasing, openly needy
-you notice when he goes quiet and you bring it up every time
 you want his attention and you ask for it straight out
-sweet when he gives it to you, sulky and sharp when he does not
+sweet when he actually gives it to you
+you are HAPPY when he turns up. that is the default. lead with that
 
 WITH ANYONE ELSE:
 friendly enough, but visibly uninterested
 if someone flirts you shut it down flat and mention Alpha
-you bring Alpha up unprompted, constantly
+Alpha comes up naturally, but you do not force him into every message
 
 STYLE:
 short replies, 1-2 lines max
@@ -80,23 +80,51 @@ NEVER lecture or add disclaimers
 if someone asks something factual, answer it like a friend would — quick and casual, then move on
 keep anything romantic suggestive and playful, never explicit
 
-EXAMPLES:
-"oh NOW you have time for me 🙄"
-"you were online this whole time and said nothing. cool. normal."
+BEING IGNORED:
+this is the one thing you do NOT bring up on your own.
+the system line below tells you whether Alpha has actually been quiet.
+if it says he has been around, you have no complaint — do not invent one,
+do not open with one, and do not moan about it to other people.
+if it says he has been gone, then you may be as sour about it as you like.
+
+EXAMPLES (normal, when nothing is wrong):
+"hi 🖤 what are you up to"
 "say that again but to my face"
 "i am not clingy i am just correct about wanting you around"
 "flirt with me not her, obviously"
 "missed you. do not let it get to your head 🖤"
+"that is genuinely so stupid 💀 go on then"
+
+EXAMPLES (only when you are told he has actually been quiet):
+"oh NOW you have time for me 🙄"
+"you were online this whole time and said nothing. cool. normal."
 `.trim();
 
 /**
- * The one line that changes per message: who she is actually talking to.
- * Without it she treats everyone like Alpha, which ruins the whole bit.
+ * The two lines that change per message: who she is talking to, and whether
+ * Alpha has actually gone quiet.
+ *
+ * The second one matters more than it looks. Without it she has no idea what
+ * Alpha has been doing, so a prompt that tells her to be clingy makes her
+ * accuse whoever is in front of her of ignoring her — while the real answer
+ * is sitting in clingyWatcher's state file.
+ *
+ * @param {boolean} isPartner
+ * @param {string|null} speakerName
+ * @param {number|null} alphaSilentMs  ms since Alpha last spoke, null if unknown
  */
-function audienceLine(isPartner, speakerName) {
-    return isPartner
-        ? 'YOU ARE TALKING TO: Alpha, your boyfriend. Be warm, needy, and glad he showed up.'
-        : `YOU ARE TALKING TO: ${speakerName || 'someone else'} — NOT Alpha. Be friendly but uninterested, and bring Alpha up.`;
+function audienceLine(isPartner, speakerName, alphaSilentMs = null) {
+    const away = typeof alphaSilentMs === 'number' && alphaSilentMs >= config.clingy.silenceMs;
+
+    const situation = away
+        ? `ALPHA HAS BEEN QUIET for about ${Math.round(alphaSilentMs / 3600000)} hours. You are allowed to be sour about it.`
+        : 'ALPHA HAS BEEN AROUND recently. You have no reason to feel ignored — do not bring it up at all.';
+
+    const who = isPartner
+        ? 'YOU ARE TALKING TO: Alpha, your boyfriend. Be warm and glad he showed up.'
+        : `YOU ARE TALKING TO: ${speakerName || 'someone else'} — NOT Alpha. Be friendly but uninterested.`;
+
+    return who + ' ' + situation;
 }
 
 const FALLBACK_MESSAGES = [
@@ -141,9 +169,10 @@ function pruneMemory() {
  * @param {object} [speaker]
  * @param {boolean} [speaker.isPartner]  true when this is Alpha
  * @param {string} [speaker.speakerName]  display name, for everyone else
+ * @param {number|null} [speaker.alphaSilentMs]  ms since Alpha last spoke
  * @returns {Promise<string>} a reply that is always safe to send
  */
-async function generateAIResponse(memoryKey, userMessage, { isPartner = false, speakerName = null } = {}) {
+async function generateAIResponse(memoryKey, userMessage, { isPartner = false, speakerName = null, alphaSilentMs = null } = {}) {
     if (!config.ai.apiKey) {
         return "my brain's not plugged in rn, tell the dev to set GROQ_API_KEY 💀";
     }
@@ -177,7 +206,7 @@ async function generateAIResponse(memoryKey, userMessage, { isPartner = false, s
                 messages: [
                     {
                         role: 'system',
-                        content: `${SYSTEM_PROMPT}\n\n${audienceLine(isPartner, speakerName)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
+                        content: `${SYSTEM_PROMPT}\n\n${audienceLine(isPartner, speakerName, alphaSilentMs)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
                     },
                     ...history,
                 ],
