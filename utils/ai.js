@@ -195,8 +195,20 @@ async function generateAIResponse(memoryKey, userMessage, { isPartner = false, s
             }
         );
 
-        let reply = response?.data?.choices?.[0]?.message?.content?.trim();
+        const choice = response?.data?.choices?.[0]?.message;
+        let reply = choice?.content?.trim();
+
+        // Reasoning models put their working in a separate field and can hand
+        // back empty content. Without naming that, it surfaces as the generic
+        // "lost my train of thought" line and looks like a network problem.
+        if (!reply && choice?.reasoning) {
+            throw new Error(config.ai.model + ' returned reasoning but no content — GROQ_MODEL needs to be a non-reasoning model');
+        }
         if (!reply) throw new Error('Empty response from Groq');
+
+        // Some models put their thinking inline instead.
+        reply = reply.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        if (!reply) throw new Error('Response was nothing but a think block');
 
         // Collapse to a single chat-sized line and strip any roleplay asterisks.
         reply = reply.split('\n').filter(Boolean)[0].trim();
@@ -217,10 +229,13 @@ async function generateAIResponse(memoryKey, userMessage, { isPartner = false, s
         return reply;
     } catch (err) {
         const status = err.response?.status;
-        console.error('[AI ERROR]', status || '', err.response?.data?.error?.message || err.message);
+        console.error('[AI ERROR]', config.ai.model, status || '', err.response?.data?.error?.message || err.message);
 
         if (status === 401) return "my keys got revoked apparently 💀";
         if (status === 429) return 'slow down, i need a sec 😭';
+        // Groq retires models regularly, and a dead GROQ_MODEL is otherwise
+        // indistinguishable from the network being down.
+        if (status === 400 || status === 404) return "my brain model is gone, tell the dev to check GROQ_MODEL 💀";
         return "nah i lost my train of thought 💀";
     } finally {
         userBusy.delete(memoryKey);

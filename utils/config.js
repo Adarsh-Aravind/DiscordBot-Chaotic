@@ -88,7 +88,9 @@ module.exports = {
     // Runs on Groq's OpenAI-compatible chat completions endpoint.
     ai: {
         apiKey: process.env.GROQ_API_KEY || '',
-        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+        // Groq retires models often — check https://console.groq.com/docs/models
+        // if riri starts saying her brain model is gone.
+        model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
 
         // How many past messages (user + riri combined) to carry as context.
         memoryTurns: Number(process.env.AI_MEMORY_TURNS) || 8,
