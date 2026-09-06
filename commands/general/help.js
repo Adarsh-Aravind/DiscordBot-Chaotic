@@ -12,8 +12,33 @@ const CATEGORY_LABELS = {
 
 const CATEGORY_ORDER = ['general', 'fun', 'chaos', 'f1', 'mod'];
 
+// Discord caps an embed field value at 1024 characters and rejects the whole
+// embed if one is over — so a single category growing too long would take the
+// entire help message down, not just its own section. Split instead.
+const FIELD_LIMIT = 1024;
+
+function chunkLines(lines, limit = FIELD_LIMIT) {
+    const chunks = [];
+    let current = '';
+
+    for (const line of lines) {
+        const candidate = current ? current + '\n' + line : line;
+        if (candidate.length > limit && current) {
+            chunks.push(current);
+            current = line;
+        } else {
+            current = candidate;
+        }
+    }
+    if (current) chunks.push(current);
+
+    // A single line longer than the cap can't be split further, so trim it.
+    return chunks.map(chunk => (chunk.length > limit ? chunk.slice(0, limit - 1) + '…' : chunk));
+}
+
 module.exports = {
     name: 'help',
+    chunkLines,
     description: 'Lists all available commands.',
     async execute(message, args, client) {
         const grouped = new Map();
@@ -32,7 +57,10 @@ module.exports = {
         const embed = new EmbedBuilder()
             .setColor('#2B2D31')
             .setTitle('Commands')
-            .setDescription(`Prefix: \`${config.prefix}\` — commands marked 🔒 need the mod role.`)
+            .setDescription(
+                `Prefix: \`${config.prefix}\` — unlocked commands are open to everyone. ` +
+                'Anything marked 🔒 needs a staff role.'
+            )
             .setFooter({
                 text: `Requested by ${message.author.tag}`,
                 iconURL: message.author.displayAvatarURL({ dynamic: true })
@@ -42,16 +70,32 @@ module.exports = {
         for (const category of categories) {
             const lines = grouped
                 .get(category)
-                .sort((a, b) => a.name.localeCompare(b.name))
+                // Open commands first, so a normal user reads their own list
+                // before hitting the staff-only block.
+                .sort((a, b) =>
+                    Number(Boolean(a.restricted)) - Number(Boolean(b.restricted)) ||
+                    a.name.localeCompare(b.name))
                 .map(cmd => {
                     const lock = cmd.restricted ? ' 🔒' : '';
                     return `\`${config.prefix}${cmd.name}\`${lock} — ${cmd.description}`;
-                })
-                .join('\n');
+                });
 
+            const label = CATEGORY_LABELS[category] || category;
+            for (const [index, value] of chunkLines(lines).entries()) {
+                embed.addFields({
+                    name: index === 0 ? label : label + ' (cont.)',
+                    value,
+                    inline: false
+                });
+            }
+        }
+
+        // If something didn't load, say so here rather than leaving a silent gap.
+        const failures = client.commandLoadFailures || [];
+        if (failures.length > 0) {
             embed.addFields({
-                name: CATEGORY_LABELS[category] || category,
-                value: lines,
+                name: '⚠️ Failed to load',
+                value: chunkLines(failures.map(f => '`' + f.file + '` — ' + f.reason))[0],
                 inline: false
             });
         }
@@ -60,7 +104,9 @@ module.exports = {
             name: '✨ Passive Features',
             value:
                 `Mention <@${client.user.id}> at the start of a message to chat with **riri** — ` +
+                `she is <@${config.ai.partnerUserId}>'s girlfriend and will remind you of it. ` +
                 'after that just reply to her messages to keep talking.\n' +
+                `Stay deafened in voice too long and you get parked in <#${config.afk.channelId}>.\n` +
                 `Reacts to messages from a certain someone with 🇬 🇦 🇾 — toggle who with \`${config.prefix}gay @user\`.`,
             inline: false
         });

@@ -1,6 +1,0 @@
-discord.js==14.14.1
-dotenv==16.4.5
-axios==1.6.8
-
-# Note: This is a Node.js project natively utilizing package.json.
-# This requirements list is strictly for reference purposes. Please use `npm install` for proper dependency configuration.

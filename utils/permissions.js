@@ -1,6 +1,28 @@
 const config = require('./config');
 
+/**
+ * Does this member hold any of the allowed roles?
+ *
+ * On a cached GuildMember, `roles` is a role manager with a `.cache`. Button
+ * interactions can hand back the raw API member instead, where `roles` is a
+ * plain array of role ids — reading `.cache.has` on that throws, so handle both.
+ *
+ * @param {import('discord.js').GuildMember | { roles: string[] } | null} [member]
+ * @returns {boolean}
+ */
+function hasAllowedRole(member) {
+    const roles = member?.roles;
+    if (!roles) return false;
+
+    if (Array.isArray(roles)) {
+        return roles.some(id => config.allowedRoleIds.includes(id));
+    }
+    return config.allowedRoleIds.some(id => Boolean(roles.cache?.has(id)));
+}
+
 module.exports = {
+    hasAllowedRole,
+
     /**
      * Whether the message author may use restricted commands.
      * Guild-only: DMs have no member, so they never pass.
@@ -9,7 +31,7 @@ module.exports = {
      */
     isAuthorized(message) {
         if (message.author.id === config.allowedUserId) return true;
-        return Boolean(message.member?.roles.cache.has(config.allowedRoleId));
+        return hasAllowedRole(message.member);
     },
 
     /**
@@ -20,6 +42,6 @@ module.exports = {
      */
     isAuthorizedInteraction(interaction) {
         if (interaction.user.id === config.allowedUserId) return true;
-        return Boolean(interaction.member?.roles.cache.has(config.allowedRoleId));
+        return hasAllowedRole(interaction.member);
     }
 };

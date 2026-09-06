@@ -1,6 +1,12 @@
 const config = require('../utils/config');
-const { generateAIResponse, rememberReply, isRiriMessage } = require('../utils/ai');
+const {
+    generateAIResponse,
+    rememberReply,
+    isRiriMessage,
+    shouldInterject
+} = require('../utils/ai');
 const reactionManager = require('../utils/reactionManager');
+const clingyWatcher = require('../utils/clingyWatcher');
 
 // Matches a leading mention of the bot: <@id> or <@!id>, optionally after
 // whitespace. Anything after it is what the user actually said to riri.
@@ -11,26 +17,19 @@ function stripLeadingMention(content, botId) {
 }
 
 // Is this message a Discord reply to something riri said?
-async function isReplyToRiri(message, client) {
+//
+// The tracked-ID set is persisted now, so this is an exact answer and survives
+// restarts. It used to fall back to "any embed-less message from the bot",
+// which also matched plain-text command output — the .gay list, the permission
+// roast, the generic command-error reply — and pulled riri into replies aimed
+// at those. It saves a fetchReference call on every server reply, too.
+function isReplyToRiri(message) {
     const referencedId = message.reference?.messageId;
-    if (!referencedId) return false;
-
-    // Fast path — we sent it this process lifetime.
-    if (isRiriMessage(referencedId)) return true;
-
-    // Slow path — covers messages sent before the last restart, when the
-    // tracked-ID set was empty. Embeds are excluded so replying to a command's
-    // output (.help, .hof) doesn't drag riri into it.
-    try {
-        const referenced = await message.fetchReference();
-        return referenced.author.id === client.user.id && referenced.embeds.length === 0;
-    } catch {
-        return false; // deleted, or not fetchable
-    }
+    return Boolean(referencedId) && isRiriMessage(referencedId);
 }
 
 // Returns what the user said to riri, or null if she wasn't being addressed.
-async function resolveRiriPrompt(message, client) {
+function resolveRiriPrompt(message, client) {
     // Trigger 1: message starts by mentioning her.
     const mentioned = stripLeadingMention(message.content, client.user.id);
     if (mentioned !== null) return mentioned || 'hey';
@@ -38,13 +37,13 @@ async function resolveRiriPrompt(message, client) {
     // Trigger 2: message is a reply to one of hers. Commands still win, so
     // `.forget` while replying to riri runs the command instead.
     if (message.content.startsWith(config.prefix)) return null;
-    if (await isReplyToRiri(message, client)) return message.content.trim() || 'hey';
+    if (isReplyToRiri(message)) return message.content.trim() || 'hey';
 
     return null;
 }
 
 async function handleRiriChat(message, client) {
-    const text = await resolveRiriPrompt(message, client);
+    const text = resolveRiriPrompt(message, client);
     if (text === null) return false;
 
     if (!config.ai.enabled) {
@@ -56,7 +55,10 @@ async function handleRiriChat(message, client) {
 
     try {
         await message.channel.sendTyping().catch(() => {});
-        const reply = await generateAIResponse(memoryKey, text);
+        const reply = await generateAIResponse(memoryKey, text, {
+            isPartner: message.author.id === config.ai.partnerUserId,
+            speakerName: message.member?.displayName || message.author.username
+        });
         const sent = await message.reply({
             content: reply,
             allowedMentions: { repliedUser: true, parse: [] }
@@ -71,6 +73,38 @@ async function handleRiriChat(message, client) {
     return true;
 }
 
+// Riri butting in on a conversation nobody invited her to. Deliberately placed
+// after command handling: an interjection should never eat a command, and a
+// one-word message isn't worth spending a Groq call on.
+const MIN_INTERJECT_LENGTH = 12;
+
+async function handleInterjection(message) {
+    const text = message.content.trim();
+    if (text.length < MIN_INTERJECT_LENGTH) return;
+    if (!shouldInterject(message.channel.id)) return;
+
+    try {
+        await message.channel.sendTyping().catch(() => {});
+        const reply = await generateAIResponse(
+            `${message.channel.id}:${message.author.id}`,
+            text,
+            {
+                isPartner: message.author.id === config.ai.partnerUserId,
+                speakerName: message.member?.displayName || message.author.username
+            }
+        );
+        const sent = await message.reply({
+            content: reply,
+            allowedMentions: { repliedUser: false, parse: [] }
+        });
+
+        rememberReply(sent.id);
+        console.log(`[AI] Interjected in #${message.channel.name || message.channel.id}.`);
+    } catch (err) {
+        console.error('[AI INTERJECT ERROR]', err);
+    }
+}
+
 async function handleDirectMessage(message, client) {
     const ownerId = config.ownerId;
 
@@ -81,14 +115,15 @@ async function handleDirectMessage(message, client) {
 
     // Owner replying to a forwarded DM: `.reply <user_id> <message>`
     if (message.author.id === ownerId) {
-        if (!message.content.startsWith('.reply ')) return false;
+        const replyCommand = `${config.prefix}reply `;
+        if (!message.content.startsWith(replyCommand)) return false;
 
-        const args = message.content.split(' ').slice(1);
+        const args = message.content.slice(replyCommand.length).trim().split(/ +/);
         const targetId = args.shift();
         const replyContent = args.join(' ');
 
         if (!targetId || !replyContent) {
-            await message.reply('⚠️ Format: `.reply <user_id> <message>`');
+            await message.reply(`⚠️ Format: \`${config.prefix}reply <user_id> <message>\``);
             return true;
         }
 
@@ -120,6 +155,9 @@ module.exports = {
     name: 'messageCreate',
     async execute(message, client) {
         if (message.author.bot) return;
+
+        // Resets riri's "he is ignoring me" clock. Any channel counts.
+        clingyWatcher.noteActivity(message);
 
         if (!message.guild) {
             const handled = await handleDirectMessage(message, client);
@@ -161,9 +199,18 @@ module.exports = {
         }
 
         // =========================
+        // RIRI — uninvited
+        // =========================
+        if (!isCommandHandled && message.guild) {
+            await handleInterjection(message);
+        }
+
+        // =========================
         // CUSTOM REACTIONS
         // =========================
-        if (!isCommandHandled && reactionManager.isTarget(message.author.id)) {
+        // Guild-only. With OWNER_ID unset (the shipped default) a DM falls
+        // through to here, and spelling at someone in their DMs isn't the joke.
+        if (message.guild && !isCommandHandled && reactionManager.isTarget(message.author.id)) {
             try {
                 for (const emoji of config.reactionEmojis) {
                     await message.react(emoji);

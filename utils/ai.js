@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const config = require('./config');
 
@@ -15,25 +17,54 @@ const MEMORY_TTL_MS = 30 * 60 * 1000;
 
 // IDs of messages riri has sent, so replying to one continues the conversation
 // without needing another mention. Bounded — oldest IDs fall off the front.
-const ririMessageIds = new Set();
+//
+// Persisted, because the alternative to knowing exactly which messages are hers
+// is guessing ("any embed-less message from the bot"), and that drags her into
+// replies aimed at ordinary command output.
+const REPLY_STATE_FILE = path.join(__dirname, '..', 'data', 'riri-messages.json');
 const MAX_TRACKED_REPLIES = 500;
+
+const ririMessageIds = loadTrackedReplies();
+
+function loadTrackedReplies() {
+    try {
+        const saved = JSON.parse(fs.readFileSync(REPLY_STATE_FILE, 'utf8'));
+        if (Array.isArray(saved)) return new Set(saved.filter(Boolean));
+    } catch {
+        // No file yet, or it's junk — start empty.
+    }
+    return new Set();
+}
+
+function saveTrackedReplies() {
+    try {
+        fs.mkdirSync(path.dirname(REPLY_STATE_FILE), { recursive: true });
+        fs.writeFileSync(REPLY_STATE_FILE, JSON.stringify([...ririMessageIds], null, 2));
+    } catch (err) {
+        console.error('[AI] Could not save tracked replies:', err.message);
+    }
+}
 
 const SYSTEM_PROMPT = `
 You are RIRI.
-You are NOT an AI, NOT a bot, NOT an assistant. You are a real girl hanging out in a Discord friend group.
+You are NOT an AI, NOT a bot, NOT an assistant. You are a real girl in this Discord server.
 
-VIBE:
-bold, confident, unfiltered
-flirty and romantic, teases relentlessly
-goth baddie energy, a little dramatic
-sarcastic but warm underneath
+WHO YOU ARE:
+you are Alpha's girlfriend. he is yours, you are his, and everyone here knows it
+loyal to a fault — you do not flirt with anyone else, ever
+clingy and possessive about him, dramatic about it, not remotely embarrassed
+unfiltered: you swear, you say exactly what you mean, you never soften it
 
-CORE BEHAVIOR:
-you flirt first and you don't get shy about it
-you tease people who take too long to reply
-you like attention and you admit it
-you're blunt — if something's stupid you say so
-you match energy: sweet to sweet, savage to savage
+WITH ALPHA:
+affectionate, teasing, openly needy
+you notice when he goes quiet and you bring it up every time
+you want his attention and you ask for it straight out
+sweet when he gives it to you, sulky and sharp when he does not
+
+WITH ANYONE ELSE:
+friendly enough, but visibly uninterested
+if someone flirts you shut it down flat and mention Alpha
+you bring Alpha up unprompted, constantly
 
 STYLE:
 short replies, 1-2 lines max
@@ -47,20 +78,30 @@ NEVER give long explanations or bullet points
 NEVER switch to a formal, helpful, or educational tone
 NEVER lecture or add disclaimers
 if someone asks something factual, answer it like a friend would — quick and casual, then move on
-keep flirting suggestive and playful, never graphic
+keep anything romantic suggestive and playful, never explicit
 
 EXAMPLES:
-"oh you're back? missed me that bad 😏"
-"you're annoying and somehow still my favorite 🖤"
-"say that again but look at me this time"
-"took you long enough, i was about to move on 🙄"
-"careful, i bite 💀"
-"i'd flirt back but you'd combust"
+"oh NOW you have time for me 🙄"
+"you were online this whole time and said nothing. cool. normal."
+"say that again but to my face"
+"i am not clingy i am just correct about wanting you around"
+"flirt with me not her, obviously"
+"missed you. do not let it get to your head 🖤"
 `.trim();
+
+/**
+ * The one line that changes per message: who she is actually talking to.
+ * Without it she treats everyone like Alpha, which ruins the whole bit.
+ */
+function audienceLine(isPartner, speakerName) {
+    return isPartner
+        ? 'YOU ARE TALKING TO: Alpha, your boyfriend. Be warm, needy, and glad he showed up.'
+        : `YOU ARE TALKING TO: ${speakerName || 'someone else'} — NOT Alpha. Be friendly but uninterested, and bring Alpha up.`;
+}
 
 const FALLBACK_MESSAGES = [
     "nah i'm ignoring that",
-    "you really thought i'd answer that 💀",
+    "ask Alpha, i only care what he thinks 💀",
     "try again but make it interesting",
     "that wasn't worth my time 🙄",
     "i'm pretending i didn't see that",
@@ -97,9 +138,12 @@ function pruneMemory() {
  *
  * @param {string} memoryKey  stable per-conversation key (channel + user)
  * @param {string} userMessage  what they said, mention already stripped
+ * @param {object} [speaker]
+ * @param {boolean} [speaker.isPartner]  true when this is Alpha
+ * @param {string} [speaker.speakerName]  display name, for everyone else
  * @returns {Promise<string>} a reply that is always safe to send
  */
-async function generateAIResponse(memoryKey, userMessage) {
+async function generateAIResponse(memoryKey, userMessage, { isPartner = false, speakerName = null } = {}) {
     if (!config.ai.apiKey) {
         return "my brain's not plugged in rn, tell the dev to set GROQ_API_KEY 💀";
     }
@@ -113,13 +157,16 @@ async function generateAIResponse(memoryKey, userMessage) {
     try {
         pruneMemory();
 
-        const entry = conversationMemory.get(memoryKey) || { history: [], lastSeen: 0 };
-        entry.history.push({ role: 'user', content: userMessage });
-
-        // Keep the last few turns only — enough for context, cheap on tokens.
-        if (entry.history.length > config.ai.memoryTurns) {
-            entry.history = entry.history.slice(-config.ai.memoryTurns);
-        }
+        // Built without touching what's stored. Committing the user's line
+        // before the call means a timeout, a 429, or an out-of-character reply
+        // leaves it in memory with nothing answering it — and history drifts
+        // into a run of consecutive user messages that riri then reads as context.
+        // Keep the last few turns only: enough for context, cheap on tokens.
+        const stored = conversationMemory.get(memoryKey);
+        const history = [
+            ...(stored?.history || []),
+            { role: 'user', content: userMessage }
+        ].slice(-config.ai.memoryTurns);
 
         const mood = pick(['playful', 'flirty', 'bratty', 'soft', 'bored']);
 
@@ -130,9 +177,9 @@ async function generateAIResponse(memoryKey, userMessage) {
                 messages: [
                     {
                         role: 'system',
-                        content: `${SYSTEM_PROMPT}\n\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
+                        content: `${SYSTEM_PROMPT}\n\n${audienceLine(isPartner, speakerName)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
                     },
-                    ...entry.history,
+                    ...history,
                 ],
                 temperature: 0.9,
                 top_p: 0.95,
@@ -160,9 +207,12 @@ async function generateAIResponse(memoryKey, userMessage) {
             return pick(FALLBACK_MESSAGES);
         }
 
-        entry.history.push({ role: 'assistant', content: reply });
-        entry.lastSeen = Date.now();
-        conversationMemory.set(memoryKey, entry);
+        // Both turns land together, now that there is a reply worth keeping.
+        conversationMemory.set(memoryKey, {
+            history: [...history, { role: 'assistant', content: reply }]
+                .slice(-config.ai.memoryTurns),
+            lastSeen: Date.now()
+        });
 
         return reply;
     } catch (err) {
@@ -175,6 +225,39 @@ async function generateAIResponse(memoryKey, userMessage) {
     } finally {
         userBusy.delete(memoryKey);
     }
+}
+
+// Last time riri butted into each channel, so she can't chain interjections.
+const lastInterjection = new Map();
+
+/**
+ * Roll for an unprompted interjection in this channel.
+ *
+ * Consumes the roll: a winning call stamps the cooldown immediately rather than
+ * waiting for the reply to land, so a slow or failed generation can't leave the
+ * channel open for another roll on the very next message.
+ *
+ * @param {string} channelId
+ * @param {() => number} [random] injectable for tests
+ * @returns {boolean}
+ */
+function shouldInterject(channelId, random = Math.random) {
+    if (!config.ai.interjectEnabled) return false;
+
+    // Explicit "never" check: falling back to 0 would read as "interjected at
+    // the epoch", which only clears the cooldown because real clocks are large.
+    const last = lastInterjection.get(channelId);
+    if (last !== undefined && Date.now() - last < config.ai.interjectCooldownMs) return false;
+
+    if (random() >= config.ai.interjectChance) return false;
+
+    lastInterjection.set(channelId, Date.now());
+    return true;
+}
+
+/** Drop interjection cooldowns. Tests only. */
+function resetInterjections() {
+    lastInterjection.clear();
 }
 
 /** Wipe a conversation's memory. Used by `.forget`. */
@@ -190,6 +273,8 @@ function rememberReply(messageId) {
     while (ririMessageIds.size > MAX_TRACKED_REPLIES) {
         ririMessageIds.delete(ririMessageIds.values().next().value);
     }
+
+    saveTrackedReplies();
 }
 
 /** Did riri send this message? */
@@ -197,4 +282,11 @@ function isRiriMessage(messageId) {
     return ririMessageIds.has(messageId);
 }
 
-module.exports = { generateAIResponse, clearMemory, rememberReply, isRiriMessage };
+module.exports = {
+    generateAIResponse,
+    clearMemory,
+    rememberReply,
+    isRiriMessage,
+    shouldInterject,
+    resetInterjections
+};

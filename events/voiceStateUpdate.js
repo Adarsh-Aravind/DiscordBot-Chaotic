@@ -1,8 +1,15 @@
 const stateManager = require('../utils/stateManager');
+const afkWatcher = require('../utils/afkWatcher');
+const deafenTracker = require('../utils/deafenTracker');
 
 module.exports = {
     name: 'voiceStateUpdate',
     async execute(oldState, newState) {
+        // Runs first, and off newState.id rather than newState.member, so a
+        // missing member object can't stop the AFK countdown from updating.
+        afkWatcher.handle(newState);
+        deafenTracker.handle(newState);
+
         // We only care about users currently being dragged
         if (!stateManager.has(newState.member.id)) return;
 

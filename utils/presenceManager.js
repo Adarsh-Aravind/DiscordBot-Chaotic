@@ -1,58 +1,57 @@
 const { ActivityType } = require('discord.js');
 
 /**
- * Rotating bot presence, one line per hour.
+ * The bot's presence — one fixed line, no rotation.
  *
- * Note: Discord ignores application_id/assets/timestamps on bot presence updates,
- * so the game artwork and elapsed timer real users get are not achievable here —
- * only the activity text renders.
+ * Note on buttons: a bot cannot have them. Rich Presence buttons are an RPC
+ * feature for user accounts running a local app; a bot publishes its presence
+ * over the gateway instead, and discord.js only serialises type/name/state/url
+ * into that payload — a `buttons` array is dropped before it is ever sent.
+ * Same bucket as the artwork and elapsed timer that real users get.
+ *
+ * ActivityType.Streaming plus a youtube.com/twitch.tv `url` is the one way to
+ * make a bot's presence line itself clickable, at the cost of the verb reading
+ * "Streaming" rather than "Watching".
  */
 
-const ROTATION_MS = 60 * 60 * 1000; // 1 hour
+const ACTIVITY = {
+    type: ActivityType.Watching,
+    name: 'Hardstuck Crusaders'
+};
 
-// Cheesy on purpose. Mixed activity types read better than forcing "Playing"
-// onto every joke — "Competing in hardstuck purgatory" lands, "Playing" it doesn't.
-const STATUSES = [
-    { type: ActivityType.Competing, name: 'hardstuck purgatory' },
-    { type: ActivityType.Watching, name: 'the Crusaders climb (slowly)' },
-    { type: ActivityType.Playing, name: 'Hardstuck Simulator 2026' },
-    { type: ActivityType.Competing, name: 'ranked, losing gracefully' },
-    { type: ActivityType.Watching, name: 'one more game (it is 4am)' },
-    { type: ActivityType.Listening, name: 'enemy team mic feedback' },
-    { type: ActivityType.Playing, name: 'aim trainer, missing anyway' },
-    { type: ActivityType.Watching, name: 'Crusaders content in glorious 4K' },
-    { type: ActivityType.Competing, name: 'the Hardstuck Invitational' },
-    { type: ActivityType.Playing, name: 'support diff: the movie' },
-];
+let boundClient = null;
 
 /**
- * Which game the bot should be on right now, derived purely from wall-clock time.
- * This makes the rotation stateless: after a power cut or restart the bot lands on
- * the same slot it would have been on had it never gone down.
+ * Set the presence. Also the reconnect handler: Discord drops presence on a
+ * fresh IDENTIFY, and with nothing on a timer any more this is the only thing
+ * that puts it back after a reconnect.
  */
-function currentIndex() {
-    return Math.floor(Date.now() / ROTATION_MS) % STATUSES.length;
-}
+function apply() {
+    if (!boundClient?.user) return;
 
-function apply(client) {
-    const status = STATUSES[currentIndex()];
-    client.user.setActivity(status.name, { type: status.type });
-    console.log(`[presence] ${status.name}`);
+    boundClient.user.setActivity(ACTIVITY.name, { type: ACTIVITY.type });
+    console.log(`[presence] ${ACTIVITY.name}`);
 }
 
 /**
  * @param {import('discord.js').Client} client
  */
 function start(client) {
-    apply(client);
+    if (boundClient) return;
+    boundClient = client;
 
-    // Align the first tick to the next hour boundary so slot changes stay in step
-    // with the wall clock, then fall into a plain hourly interval.
-    const msUntilNextSlot = ROTATION_MS - (Date.now() % ROTATION_MS);
-    setTimeout(() => {
-        apply(client);
-        setInterval(() => apply(client), ROTATION_MS);
-    }, msUntilNextSlot);
+    apply();
+
+    client.on('shardReady', apply);
+    client.on('shardResume', apply);
 }
 
-module.exports = { start, STATUSES };
+function stop() {
+    if (boundClient) {
+        boundClient.off('shardReady', apply);
+        boundClient.off('shardResume', apply);
+        boundClient = null;
+    }
+}
+
+module.exports = { start, stop, ACTIVITY };

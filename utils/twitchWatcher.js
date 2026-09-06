@@ -2,10 +2,21 @@ const fs = require('fs');
 const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 const config = require('./config');
+const liveNickname = require('./liveNickname');
 
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const HELIX_URL = 'https://api.twitch.tv/helix';
 const STATE_FILE = path.join(__dirname, '..', 'data', 'twitch-live.json');
+
+// Node's fetch has no useful default timeout (undici waits ~5 min for headers),
+// which is long enough for one stuck request to overlap the next poll.
+const REQUEST_TIMEOUT_MS = 15_000;
+
+// Helix intermittently omits a stream that is still running — a transcode blip
+// or a brief reconnect reads as "offline". Forgetting a streamer on the first
+// miss means the next check sees the same stream id as new and pings @everyone
+// a second time, so require a few misses in a row before believing it.
+const MISSES_BEFORE_OFFLINE = 3;
 
 let timer = null;
 
@@ -44,7 +55,10 @@ async function getToken(force = false) {
         grant_type: 'client_credentials'
     });
 
-    const response = await fetch(`${TOKEN_URL}?${params}`, { method: 'POST' });
+    const response = await fetch(`${TOKEN_URL}?${params}`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    });
     if (!response.ok) {
         throw new Error(`token request returned HTTP ${response.status}`);
     }
@@ -63,7 +77,8 @@ async function helix(endpoint, params) {
         headers: {
             'Client-ID': config.twitch.clientId,
             Authorization: `Bearer ${await getToken()}`
-        }
+        },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     });
 
     let response = await call();
@@ -123,12 +138,7 @@ function buildEmbed(stream, user) {
     return embed;
 }
 
-/**
- * Check every watched streamer once and announce anyone who just went live.
- * @param {import('discord.js').Client} client
- * @returns {Promise<{posted: number, live: number, errors: string[]}>}
- */
-async function checkOnce(client) {
+async function runCheck(client) {
     const result = { posted: 0, live: 0, errors: [] };
 
     const { logins, announceChannelId } = config.twitch;
@@ -193,29 +203,66 @@ async function checkOnce(client) {
             startedAt: stream.started_at
         };
         stateChanged = true;
+
+        // Fire and forget: a nickname the bot isn't allowed to change must not
+        // hold up the rest of the check.
+        liveNickname.flag(target.guild, login).catch(err =>
+            console.error(`[Twitch] Nickname flag failed for ${login}: ${err.message}`));
     }
 
-    // Drop anyone who's gone offline so their next go-live is a clean slate.
+    // Age out anyone who has stopped showing up, so their next go-live is a
+    // clean slate — but only after MISSES_BEFORE_OFFLINE consecutive misses,
+    // so one flaky reading can't re-announce a stream that never stopped.
     const liveLogins = new Set(streams.map(s => s.user_login.toLowerCase()));
-    for (const login of Object.keys(state)) {
-        if (!liveLogins.has(login)) {
-            delete state[login];
-            stateChanged = true;
+    for (const [login, entry] of Object.entries(state)) {
+        if (liveLogins.has(login)) {
+            if (entry.misses) {
+                delete entry.misses;
+                stateChanged = true;
+            }
+            continue;
         }
+
+        entry.misses = (entry.misses || 0) + 1;
+        if (entry.misses >= MISSES_BEFORE_OFFLINE) {
+            delete state[login];
+            console.log(`[Twitch] ${entry.name || login} went offline.`);
+
+            liveNickname.unflag(target.guild, login).catch(err =>
+                console.error(`[Twitch] Nickname restore failed for ${login}: ${err.message}`));
+        }
+        stateChanged = true;
     }
 
     if (stateChanged) saveState(state);
     return result;
 }
 
+// One check at a time. Overlapping runs race on the state file: both read the
+// same snapshot, both see the same go-live as new, and the later write drops
+// the earlier one's record of having announced it.
+let inFlight = null;
+
+/**
+ * Check every watched streamer once and announce anyone who just went live.
+ * A check already in progress is returned as-is rather than starting a second.
+ * @param {import('discord.js').Client} client
+ * @returns {Promise<{posted: number, live: number, errors: string[]}>}
+ */
+function checkOnce(client) {
+    if (inFlight) return inFlight;
+    inFlight = runCheck(client).finally(() => { inFlight = null; });
+    return inFlight;
+}
+
 function start(client) {
     if (!config.twitch.enabled) {
-        console.log('[Twitch] Watcher disabled (missing client id/secret, logins, or announce channel).');
+        console.log('[Twitch] Watcher disabled (turned off, or missing client id/secret, logins, or announce channel).');
         return;
     }
     if (timer) return;
 
-    const runCheck = () => {
+    const tick = () => {
         checkOnce(client).catch(err => console.error('[Twitch] Check failed:', err));
     };
 
@@ -224,8 +271,8 @@ function start(client) {
         `posting to ${config.twitch.announceChannelId}, every ${config.twitch.pollIntervalMs / 60000} min.`
     );
 
-    runCheck();
-    timer = setInterval(runCheck, config.twitch.pollIntervalMs);
+    tick();
+    timer = setInterval(tick, config.twitch.pollIntervalMs);
     // Don't hold the process open just for this timer.
     if (typeof timer.unref === 'function') timer.unref();
 }

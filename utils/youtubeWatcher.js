@@ -13,6 +13,10 @@ const SEEN_LIMIT = 30;
 // If the bot was offline a while, don't dump a wall of videos into the channel.
 const MAX_ANNOUNCEMENTS_PER_CHECK = 3;
 
+// Node's fetch has no useful default timeout (undici waits ~5 min for headers),
+// which is long enough for one stuck feed to overlap the next poll.
+const REQUEST_TIMEOUT_MS = 15_000;
+
 let timer = null;
 
 // --- state persistence -----------------------------------------------------
@@ -36,6 +40,17 @@ function saveState(state) {
 
 // --- feed parsing ----------------------------------------------------------
 
+// fromCodePoint, not fromCharCode: titles are full of astral-plane emoji and
+// fromCharCode truncates those to 16 bits, leaving a broken lone surrogate.
+// Out-of-range values throw, so drop them rather than take down the poll.
+function codePoint(value) {
+    try {
+        return String.fromCodePoint(value);
+    } catch {
+        return '';
+    }
+}
+
 function decodeEntities(str) {
     return str
         .replace(/&lt;/g, '<')
@@ -43,7 +58,8 @@ function decodeEntities(str) {
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
         .replace(/&apos;/g, "'")
-        .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, hex) => codePoint(parseInt(hex, 16)))
+        .replace(/&#(\d+);/g, (_, dec) => codePoint(Number(dec)))
         // Ampersand last, so "&amp;lt;" doesn't become "<".
         .replace(/&amp;/g, '&');
 }
@@ -81,7 +97,8 @@ function parseFeed(xml) {
 
 async function fetchFeed(channelId) {
     const response = await fetch(FEED_URL + channelId, {
-        headers: { 'User-Agent': 'ChaoticBot/1.0 (DiscordJS)' }
+        headers: { 'User-Agent': 'ChaoticBot/1.0 (DiscordJS)' },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     });
     if (!response.ok) {
         throw new Error(`feed returned HTTP ${response.status}`);
@@ -101,14 +118,7 @@ function buildEmbed(entry) {
         .setTimestamp(entry.published ? new Date(entry.published) : new Date());
 }
 
-/**
- * Check every watched channel once and post anything new.
- * @param {import('discord.js').Client} client
- * @param {object} [options]
- * @param {boolean} [options.announceFirstRun] Post on a channel's very first check.
- * @returns {Promise<{posted: number, checked: number, errors: string[]}>}
- */
-async function checkOnce(client, { announceFirstRun = false } = {}) {
+async function runCheck(client, { announceFirstRun = false } = {}) {
     const result = { posted: 0, checked: 0, errors: [] };
 
     const channelIds = config.youtube.channelIds;
@@ -184,14 +194,34 @@ async function checkOnce(client, { announceFirstRun = false } = {}) {
     return result;
 }
 
+// One check at a time. Overlapping runs race on the state file: both read the
+// same snapshot, both see the same upload as new, and the later write drops the
+// earlier one's record of having announced it.
+let inFlight = null;
+
+/**
+ * Check every watched channel once and post anything new.
+ * A check already in progress is returned as-is rather than starting a second,
+ * so `.yt check` during a scheduled poll reports that poll's result.
+ * @param {import('discord.js').Client} client
+ * @param {object} [options]
+ * @param {boolean} [options.announceFirstRun] Post on a channel's very first check.
+ * @returns {Promise<{posted: number, checked: number, errors: string[]}>}
+ */
+function checkOnce(client, options) {
+    if (inFlight) return inFlight;
+    inFlight = runCheck(client, options).finally(() => { inFlight = null; });
+    return inFlight;
+}
+
 function start(client) {
     if (!config.youtube.enabled) {
-        console.log('[YouTube] Watcher disabled (no channel ids or no announce channel configured).');
+        console.log('[YouTube] Watcher disabled (turned off, or no channel ids / announce channel configured).');
         return;
     }
     if (timer) return;
 
-    const runCheck = () => {
+    const tick = () => {
         checkOnce(client).catch(err => console.error('[YouTube] Check failed:', err));
     };
 
@@ -200,8 +230,8 @@ function start(client) {
         `posting to ${config.youtube.announceChannelId}, every ${config.youtube.pollIntervalMs / 60000} min.`
     );
 
-    runCheck();
-    timer = setInterval(runCheck, config.youtube.pollIntervalMs);
+    tick();
+    timer = setInterval(tick, config.youtube.pollIntervalMs);
     // Don't hold the process open just for this timer.
     if (typeof timer.unref === 'function') timer.unref();
 }
@@ -213,4 +243,4 @@ function stop() {
     }
 }
 
-module.exports = { start, stop, checkOnce, parseFeed, loadState };
+module.exports = { start, stop, checkOnce, parseFeed, decodeEntities, loadState };
