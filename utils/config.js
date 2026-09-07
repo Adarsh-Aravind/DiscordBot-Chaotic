@@ -128,8 +128,9 @@ module.exports = {
         // Quiet for this long and she says something.
         silenceMs: envNumber(process.env.CLINGY_SILENCE_MS, 3 * 60 * 60 * 1000),
 
-        // Never more than one sulk per this window, however long the silence runs.
-        cooldownMs: envNumber(process.env.CLINGY_COOLDOWN_MS, 3 * 60 * 60 * 1000),
+        // A hard rate limit on how often she may sulk at all. Not reset when he
+        // turns up, so this genuinely means "at most once per".
+        cooldownMs: envNumber(process.env.CLINGY_COOLDOWN_MS, 2 * 24 * 60 * 60 * 1000),
 
         // How often to look.
         checkIntervalMs: envNumber(process.env.CLINGY_CHECK_INTERVAL_MS, 10 * 60 * 1000),

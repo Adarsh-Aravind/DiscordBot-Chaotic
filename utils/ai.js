@@ -309,6 +309,23 @@ function clearMemory(memoryKey) {
     return conversationMemory.delete(memoryKey);
 }
 
+/**
+ * Drop something riri said into a conversation's history without going through
+ * the model. Used for lines she sends on her own initiative — a sulk is still
+ * something she said, and if it isn't in here she answers the reply to it with
+ * no idea the conversation started.
+ *
+ * @param {string} memoryKey
+ * @param {string} content
+ */
+function rememberAssistantTurn(memoryKey, content) {
+    const stored = conversationMemory.get(memoryKey);
+    const history = [...(stored?.history || []), { role: 'assistant', content }]
+        .slice(-config.ai.memoryTurns);
+
+    conversationMemory.set(memoryKey, { history, lastSeen: Date.now() });
+}
+
 /** Record a message riri just sent, so replies to it are recognised. */
 function rememberReply(messageId) {
     ririMessageIds.add(messageId);
@@ -331,6 +348,7 @@ module.exports = {
     clearMemory,
     rememberReply,
     isRiriMessage,
+    rememberAssistantTurn,
     shouldInterject,
     resetInterjections
 };

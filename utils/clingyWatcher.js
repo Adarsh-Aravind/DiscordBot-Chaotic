@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { rememberReply, rememberAssistantTurn } = require('./ai');
 
 const STATE_FILE = config.clingy.stateFile;
 
@@ -125,8 +126,10 @@ function noteActivity(message) {
 
     const state = loadState();
     state.lastSeenAt = Date.now();
-    // He is back, so the next silence starts a fresh escalation.
-    state.lastNaggedAt = 0;
+    // lastNaggedAt is deliberately left alone. Clearing it here would make the
+    // cooldown only limit repeats inside one unbroken silence — he speaks, goes
+    // quiet again, and she starts over. On a normal day of on-and-off chatting
+    // that is several sulks, which is how this ended up feeling hourly.
     saveState(state);
 }
 
@@ -144,11 +147,20 @@ async function check(client) {
     const mention = config.clingy.mention ? `<@${config.ai.partnerUserId}> ` : '';
 
     try {
-        await target.send({
+        const sent = await target.send({
             content: mention + line,
             // Only ever him. Nothing in the line can widen this.
             allowedMentions: { users: config.clingy.mention ? [config.ai.partnerUserId] : [] }
         });
+
+        // Register it the same way a normal reply is registered, so replying to
+        // a sulk carries on the conversation instead of being ignored. Without
+        // this she picks a fight and then refuses to have it.
+        rememberReply(sent.id);
+
+        // ...and into her memory of the conversation, keyed the same way a
+        // reply in the home channel will be, so she knows what she just said.
+        rememberAssistantTurn(`${config.ai.homeChannelId}:${config.ai.partnerUserId}`, line);
     } catch (err) {
         console.error('[Clingy] Could not post:', err.message);
         return false;

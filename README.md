@@ -113,9 +113,10 @@ Announcements ping `@everyone`. Configure via `TWITCH_CLIENT_ID`,
   person's girlfriend: warm and clingy with him, friendly but uninterested with
   everyone else. Set by `AI_PARTNER_USER_ID`.
 - **Riri sulking** - If he hasn't posted anywhere in the server for 3 hours she
-  says so in the home channel, and gets sharper about it at 6h and 12h. One
-  message per 3-hour window no matter how long the silence runs, and the clock
-  resets the moment he speaks. Tuned with `CLINGY_*`, off with `CLINGY_ENABLED=false`.
+  says so in the home channel, and gets sharper about it at 6h and 12h. She is
+  rate-limited to one message every 2 days, and that limit is NOT reset by him
+  turning up — otherwise a day of on-and-off chatting earns several sulks.
+  Tuned with `CLINGY_*`, off with `CLINGY_ENABLED=false`.
 - **Riri interjections** - She occasionally butts into a conversation unprompted
   (~1 in 80 messages, at most once every 5 minutes per channel). Turn it off with
   `AI_INTERJECT_ENABLED=false`.

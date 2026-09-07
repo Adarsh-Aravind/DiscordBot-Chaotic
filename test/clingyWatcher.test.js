@@ -71,3 +71,59 @@ test('every tier has lines, and none are empty', () => {
         for (const line of tier.lines) assert.ok(line.trim().length > 0);
     }
 });
+
+// --- noteActivity ----------------------------------------------------------
+
+const fs = require('node:fs');
+const config = require('../utils/config');
+
+function seed(state) {
+    fs.writeFileSync(clingy.STATE_FILE, JSON.stringify(state));
+}
+
+function readState() {
+    return JSON.parse(fs.readFileSync(clingy.STATE_FILE, 'utf8'));
+}
+
+function messageFrom(userId) {
+    return { author: { id: userId }, guild: { id: 'g1' } };
+}
+
+test('his message refreshes the last-seen clock', () => {
+    seed({ lastSeenAt: 1000, lastNaggedAt: 0 });
+    clingy.noteActivity(messageFrom(config.ai.partnerUserId));
+
+    assert.ok(readState().lastSeenAt > 1000);
+});
+
+test('his message does NOT clear the sulk cooldown', () => {
+    // The bug this guards: clearing it here meant the cooldown only limited
+    // repeats inside one unbroken silence, so a day of on-and-off chatting
+    // earned a fresh sulk every few hours.
+    seed({ lastSeenAt: 1000, lastNaggedAt: 5000 });
+    clingy.noteActivity(messageFrom(config.ai.partnerUserId));
+
+    assert.strictEqual(readState().lastNaggedAt, 5000);
+});
+
+test('someone else talking changes nothing', () => {
+    seed({ lastSeenAt: 1000, lastNaggedAt: 5000 });
+    clingy.noteActivity(messageFrom('999000999000999000'));
+
+    assert.deepStrictEqual(readState(), { lastSeenAt: 1000, lastNaggedAt: 5000 });
+});
+
+test('a DM from him does not count', () => {
+    seed({ lastSeenAt: 1000, lastNaggedAt: 5000 });
+    clingy.noteActivity({ author: { id: config.ai.partnerUserId }, guild: null });
+
+    assert.deepStrictEqual(readState(), { lastSeenAt: 1000, lastNaggedAt: 5000 });
+});
+
+test('silentMs reports the gap, and null when he has never been seen', () => {
+    seed({ lastSeenAt: 1000, lastNaggedAt: 0 });
+    assert.strictEqual(clingy.silentMs(4000), 3000);
+
+    seed({ lastSeenAt: 0, lastNaggedAt: 0 });
+    assert.strictEqual(clingy.silentMs(4000), null);
+});
