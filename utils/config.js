@@ -252,5 +252,18 @@ module.exports = {
                 Boolean(this.announceChannelId)
             );
         }
+    },
+
+    // Heartbeat for the "Live Ops" panel on adarsharavind.com. The portfolio
+    // shows the bot offline once these stop arriving for ~3 minutes.
+    status: {
+        url: (process.env.STATUS_HEARTBEAT_URL || '').trim(),
+        token: (process.env.STATUS_HEARTBEAT_TOKEN || '').trim(),
+        botId: (process.env.STATUS_BOT_ID || '').trim() || 'riri',
+        intervalMs: 60 * 1000,
+
+        get enabled() {
+            return Boolean(this.url) && Boolean(this.token);
+        }
     }
 };

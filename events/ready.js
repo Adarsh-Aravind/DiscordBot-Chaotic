@@ -4,6 +4,7 @@ const presenceManager = require('../utils/presenceManager');
 const afkWatcher = require('../utils/afkWatcher');
 const deafenTracker = require('../utils/deafenTracker');
 const clingyWatcher = require('../utils/clingyWatcher');
+const heartbeat = require('../utils/heartbeat');
 
 module.exports = {
     name: 'ready',
@@ -21,5 +22,6 @@ module.exports = {
         deafenTracker.syncAll(client);
         deafenTracker.start(client);
         clingyWatcher.start(client);
+        heartbeat.start(client);
     },
 };
