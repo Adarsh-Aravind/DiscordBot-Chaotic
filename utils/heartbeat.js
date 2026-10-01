@@ -4,8 +4,8 @@ const config = require('./config');
 /**
  * Status heartbeat for the "Live Ops" panel on adarsharavind.com.
  *
- * Every minute the bot POSTs a small "I'm alive" ping to the ops-status Edge
- * Function. Pings are only sent while the gateway connection is Ready, so a
+ * Every minute the bot POSTs a small "I'm alive" ping to the ops-status server
+ * on the home server. Pings are only sent while the gateway connection is Ready, so a
  * dropped connection reads as offline even though the process is still up.
  * Inert unless STATUS_HEARTBEAT_URL and STATUS_HEARTBEAT_TOKEN are set.
  */
