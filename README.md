@@ -124,8 +124,9 @@ Announcements ping `@everyone`. Configure via `TWITCH_CLIENT_ID`,
   flirting). `AI_RIVAL_USER_ID` is her best friend *and* her rival — they
   actually love each other and every conversation still turns into a
   battleground within two messages, usually via a conspiracy theory they are
-  both committed to. She swears, her humour is dark, and she hears a double
-  meaning in everything.
+  both committed to. She is a goth baddie: she swears, her humour is dark, she
+  hears a double meaning in everything, and she talks in new-gen slang (slay,
+  ate, mid, delulu, bffr) without ever explaining a word of it.
 - **Riri sulking** - If he hasn't posted anywhere in the server for 3 hours she
   says so in the home channel, and gets sharper about it at 6h and 12h. She is
   rate-limited to one message every 2 days, and that limit is NOT reset by him

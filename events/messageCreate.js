@@ -48,8 +48,8 @@ const lastRedirect = new Map();
 
 const REDIRECTS = [
     'not in here. come say it in',
-    'wrong channel babe. i live in',
-    'i dont do this one. im in'
+    'wrong channel babe, i live in',
+    'bffr. im in'
 ];
 
 function pick(list) {
