@@ -1,8 +1,15 @@
+const { setTimeout: sleep } = require('node:timers/promises');
 const { isAuthorized } = require('../../utils/permissions');
 
 // We point to the raw version of the upstream `preload.js` file, which contains the giant list of insults.
 const rawUrl = "https://raw.githubusercontent.com/daviseford/trashtalk_generator/master/src/preload.js";
 let cache = [];
+
+const REQUEST_TIMEOUT_MS = 10_000;
+// A boot while the network is still down would otherwise leave the cache empty
+// until someone ran `.tt reload` by hand.
+const STARTUP_ATTEMPTS = 3;
+const STARTUP_RETRY_DELAY_MS = 30_000;
 
 // Fallback lists in case the URL goes down
 const fallbackWin = [
@@ -36,10 +43,12 @@ function applyFilter(text) {
     return filtered;
 }
 
-// Function to fetch and cache the external insults
+// Function to fetch and cache the external insults. Returns whether the cache
+// was filled, so the startup retry knows when to stop.
 async function fetchInsults() {
     try {
-        const res = await fetch(rawUrl);
+        const res = await fetch(rawUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const dataText = await res.text();
         
         // This file is actually a Javascript file exporting an array of strings: `module.exports = [ "str1", "str2" ]`
@@ -56,17 +65,29 @@ async function fetchInsults() {
             }
         }
 
-        if (parsed.length > 0) {
-            cache = parsed.map(applyFilter);
-            console.log(`[TT Command] Loaded ${cache.length} insults from daviseford's repo!`);
-        }
+        if (parsed.length === 0) throw new Error('no insults found in the upstream file');
+
+        cache = parsed.map(applyFilter);
+        console.log(`[TT Command] Loaded ${cache.length} insults from daviseford's repo!`);
+        return true;
     } catch (error) {
-        console.error(`[TT Command] Failed to fetch external insults: ${error.message}`);
+        // A failed fetch() reads as a bare "fetch failed" without the cause.
+        const reason = error.cause?.message ? `${error.message} (${error.cause.message})` : error.message;
+        console.error(`[TT Command] Failed to fetch external insults: ${reason}`);
+        return false;
     }
 }
 
-// Fetch immediately on startup
-fetchInsults();
+// Fetch on startup, retrying a few times so a network blip at boot does not cost
+// us the list for the rest of the run.
+(async () => {
+    for (let attempt = 1; attempt <= STARTUP_ATTEMPTS; attempt++) {
+        if (await fetchInsults()) return;
+        // { ref: false } so a pending retry is never what keeps the process alive.
+        if (attempt < STARTUP_ATTEMPTS) await sleep(STARTUP_RETRY_DELAY_MS, undefined, { ref: false });
+    }
+    console.warn('[TT Command] Giving up for now — .tt will use the built-in fallbacks until someone runs `.tt reload`.');
+})();
 
 module.exports = {
     name: 'tt',

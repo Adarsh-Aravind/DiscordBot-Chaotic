@@ -1,5 +1,6 @@
 require('dotenv').config();
-const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, Collection, DiscordjsErrorCodes, GatewayIntentBits, Partials } = require('discord.js');
+const { setTimeout: sleep } = require('node:timers/promises');
 
 const fs = require('fs');
 const path = require('path');
@@ -83,7 +84,41 @@ if (!process.env.DISCORD_TOKEN) {
     process.exit(1);
 }
 
-client.login(process.env.DISCORD_TOKEN);
+// A boot while the network is still down — a server reboot, pm2 resurrecting
+// before DNS is up — makes login reject with a connect timeout. discord.js
+// destroys the client on a failed login, so an unhandled rejection there leaves
+// the process alive but permanently disconnected: pm2 sees a healthy bot that is
+// never coming back. Retry, then exit so the process manager can restart us.
+const LOGIN_ATTEMPTS = 5;
+const LOGIN_RETRY_DELAY_MS = 15_000;
+
+async function login() {
+    for (let attempt = 1; attempt <= LOGIN_ATTEMPTS; attempt++) {
+        try {
+            await client.login(process.env.DISCORD_TOKEN);
+            return;
+        } catch (error) {
+            // A rejected token never fixes itself — no point burning retries.
+            if (error.code === DiscordjsErrorCodes.TokenInvalid || error.status === 401) {
+                console.error('Discord rejected the token. Check DISCORD_TOKEN in .env.');
+                process.exit(1);
+            }
+
+            // fetch() failures read as a bare "fetch failed" without the cause.
+            const reason = error.cause?.message ? `${error.message} (${error.cause.message})` : error.message;
+            console.error(`Login attempt ${attempt}/${LOGIN_ATTEMPTS} failed: ${reason}`);
+
+            if (attempt < LOGIN_ATTEMPTS) {
+                await sleep(LOGIN_RETRY_DELAY_MS);
+            }
+        }
+    }
+
+    console.error(`Could not reach Discord after ${LOGIN_ATTEMPTS} attempts. Exiting so the process manager restarts us.`);
+    process.exit(1);
+}
+
+login();
 
 // Global Error Handlers (prevents bot from crashing on unhandled errors)
 process.on('unhandledRejection', (error) => {
