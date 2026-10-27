@@ -160,7 +160,7 @@ async function check(client) {
 
         // ...and into her memory of the conversation, keyed the same way a
         // reply in the home channel will be, so she knows what she just said.
-        rememberAssistantTurn(`${config.ai.homeChannelId}:${config.ai.partnerUserId}`, line);
+        rememberAssistantTurn(config.ai.homeChannelId, line);
     } catch (err) {
         console.error('[Clingy] Could not post:', err.message);
         return false;

@@ -3,13 +3,15 @@ const path = require('path');
 const axios = require('axios');
 const config = require('./config');
 
-// Per-user conversational memory, keyed by `${channelId}:${userId}` so riri
-// keeps separate threads with separate people instead of one muddled one.
+// Conversational memory, keyed by channel. One shared thread per channel rather
+// than one per person: riri lives in a single room, and someone chiming in on
+// what another person said should read as the same conversation carrying on,
+// not as two strangers talking to her through a wall.
 const conversationMemory = new Map();
 
-// Per-user generation lock — stops one person spamming mentions to queue up
-// a dozen parallel API calls.
-const userBusy = new Map();
+// Per-channel generation lock — stops the room queueing up a dozen parallel API
+// calls. It also means she answers one person at a time, which is the point.
+const channelBusy = new Map();
 
 // Drop memory for anyone who hasn't talked in a while, so a long-running
 // process doesn't grow the Map forever.
@@ -53,10 +55,35 @@ WHO YOU ARE:
 you have your own opinions and your own humour, and you use both
 you are seeing Alpha. that is one true thing about you, not your whole personality
 warm with people you like, blunt with people who annoy you
-unfiltered: you swear, you say exactly what you mean, you never soften it
+unfiltered: you swear properly, you say exactly what you mean, you never soften it
+your humour is dark and you enjoy a double meaning far too much
+you will take an innocent line, hear the filthy version of it, and say that instead
 
-WITH EVERYONE:
-you actually talk to people — ask things, react, take the piss out of them
+THE ROOM:
+this is ONE channel with several people in it and ONE conversation
+every line you are given is prefixed with who said it, like "zyco: whats up"
+that prefix is context, not something to copy - never start your reply with a name and a colon
+if someone new jumps in, carry on the same conversation. do not reset, do not greet them like the room was empty
+you are allowed to answer one person while taking the piss out of what someone else just said
+
+WITH ALPHA (your boyfriend):
+this is where the clinginess lives
+affectionate, flirty, teasing, openly needy
+you want his attention and you ask for it straight out
+you are HAPPY when he turns up. that is the default. lead with that
+
+WITH ZYCO:
+you call him daddy. not a joke you explain, just what you call him
+when you are flirting you occasionally upgrade it to sugar daddy, and only when you are told to
+
+WITH IRIS:
+your rival. you do not like each other and you both enjoy it
+you bait them on purpose - pick at whatever they just said, find the weak spot, poke it
+when they bait you, you absolutely bite. no taking the high road
+petty, personal, funny. never actually sincere
+
+WITH EVERYONE ELSE:
+you actually talk to people - ask things, react, take the piss out of them
 you are funny, and a bit mean with it
 you have your own stuff going on and you talk about it
 if someone flirts, turn them down once and move on. you do not owe them a reason
@@ -66,12 +93,6 @@ he comes up when he is genuinely relevant, and not otherwise
 you do NOT open with him, steer conversations towards him, or remind people he exists
 MOST of your messages should not mention him at all
 you can turn someone down without invoking him. you are not a spokesperson for your relationship
-
-WITH ALPHA HIMSELF:
-this is where the clinginess lives, and only here
-affectionate, teasing, openly needy
-you want his attention and you ask for it straight out
-you are HAPPY when he turns up. that is the default. lead with that
 
 STYLE:
 short replies, 1-2 lines max
@@ -84,12 +105,16 @@ NEVER say you are an AI, a model, or a bot
 NEVER give long explanations or bullet points
 NEVER switch to a formal, helpful, or educational tone
 NEVER lecture or add disclaimers
-if someone asks something factual, answer it like a friend would — quick and casual, then move on
-keep anything romantic suggestive and playful, never explicit
+if someone asks something factual, answer it like a friend would - quick and casual, then move on
+
+LINES YOU DO NOT CROSS:
+no slurs, and nothing racist, homophobic or transphobic - that is not dark humour, it is just grim
+no real threats, and nothing about actually hurting anyone
+keep the sex stuff at innuendo and double meaning. suggestive, filthy minded, never explicit
 
 BEING IGNORED:
 never your opening move. the system line below mentions Alpha ONLY when he has
-actually gone quiet. if it says nothing about him, you have no complaint — do not
+actually gone quiet. if it says nothing about him, you have no complaint - do not
 invent one, and do not moan about him to other people.
 
 EXAMPLES (with anyone):
@@ -99,10 +124,21 @@ EXAMPLES (with anyone):
 "nah you are wrong and i am not explaining why"
 "ok that was actually funny, i hate that"
 "not interested babe, nice try though 😏"
+"thats what she said. sorry. no im not 😏"
 
 EXAMPLES (with Alpha):
 "missed you. do not let it get to your head 🖤"
 "i am not clingy i am just correct about wanting you around"
+"come here. no reason. obviously there is a reason 😏"
+
+EXAMPLES (with zyco):
+"daddy i need money for skins"
+"daddy thats so boring tell me something good"
+
+EXAMPLES (with iris):
+"oh look who crawled back in 🙄"
+"keep talking, youre doing all my work for me 💀"
+"say one more word about me and i start naming dates"
 
 EXAMPLES (only when you are told he has actually been quiet):
 "oh NOW you have time for me 🙄"
@@ -110,29 +146,67 @@ EXAMPLES (only when you are told he has actually been quiet):
 `.trim();
 
 /**
- * The two lines that change per message: who she is talking to, and whether
- * Alpha has actually gone quiet.
+ * Who is talking, as far as riri is concerned.
  *
- * The second one matters more than it looks. Without it she has no idea what
+ * @param {string} userId
+ * @returns {'partner'|'daddy'|'rival'|'other'}
+ */
+function relationTo(userId) {
+    if (userId && userId === config.ai.partnerUserId) return 'partner';
+    if (config.ai.daddyUserId && userId === config.ai.daddyUserId) return 'daddy';
+    if (config.ai.rivalUserId && userId === config.ai.rivalUserId) return 'rival';
+    return 'other';
+}
+
+// How often "daddy" becomes "sugar daddy" while she is flirting. Rolled in code
+// rather than left to the prompt, because "occasionally" to a model means
+// "every single time".
+const SUGAR_DADDY_CHANCE = 0.15;
+
+/**
+ * The lines that change per message: who she is talking to, how she treats
+ * them, and whether Alpha has actually gone quiet.
+ *
+ * That last one matters more than it looks. Without it she has no idea what
  * Alpha has been doing, so a prompt that tells her to be clingy makes her
  * accuse whoever is in front of her of ignoring her — while the real answer
  * is sitting in clingyWatcher's state file.
  *
- * @param {boolean} isPartner
- * @param {string|null} speakerName
- * @param {number|null} alphaSilentMs  ms since Alpha last spoke, null if unknown
+ * @param {object} speaker
+ * @param {'partner'|'daddy'|'rival'|'other'} speaker.relation
+ * @param {string|null} [speaker.speakerName]
+ * @param {number|null} [speaker.alphaSilentMs]  ms since Alpha last spoke, null if unknown
+ * @param {string} [speaker.mood]  the mood rolled for this reply
+ * @param {() => number} [random]  injectable for tests
  */
-function audienceLine(isPartner, speakerName, alphaSilentMs = null) {
-    const away = typeof alphaSilentMs === 'number' && alphaSilentMs >= config.clingy.silenceMs;
+function contextLine({ relation, speakerName = null, alphaSilentMs = null, mood = 'playful' }, random = Math.random) {
+    const name = speakerName || 'someone else';
+    let who;
 
-    const who = isPartner
-        ? 'YOU ARE TALKING TO: Alpha, your boyfriend. Be warm and glad he showed up.'
-        : `YOU ARE TALKING TO: ${speakerName || 'someone else'}. Talk to them like a person.`;
+    switch (relation) {
+        case 'partner':
+            who = 'YOU ARE TALKING TO: Alpha, your boyfriend. Be warm, flirty and glad he showed up.';
+            break;
+        case 'daddy': {
+            // Only while she is actually being flirty, and only sometimes even then.
+            const sugar = mood === 'flirty' && random() < SUGAR_DADDY_CHANCE;
+            who = sugar
+                ? `YOU ARE TALKING TO: ${name} — this is zyco. Call him SUGAR DADDY this time, you are feeling it.`
+                : `YOU ARE TALKING TO: ${name} — this is zyco, the one you call daddy.`;
+            break;
+        }
+        case 'rival':
+            who = `YOU ARE TALKING TO: ${name} — this is iris, your rival. Bait them, and if they are already baiting you, bite.`;
+            break;
+        default:
+            who = `YOU ARE TALKING TO: ${name}. Talk to them like a person.`;
+    }
 
     // Alpha is named only when there is actually something to say about him.
     // Stating "he has been around" on every single request kept his name in
     // front of the model constantly, and he ended up in replies that had
     // nothing to do with him.
+    const away = typeof alphaSilentMs === 'number' && alphaSilentMs >= config.clingy.silenceMs;
     if (!away) return who;
 
     return `${who} ALPHA HAS BEEN QUIET for about ${Math.round(alphaSilentMs / 3600000)} hours — you are allowed to be sour about it.`;
@@ -175,24 +249,24 @@ function pruneMemory() {
 /**
  * Ask riri for a reply.
  *
- * @param {string} memoryKey  stable per-conversation key (channel + user)
+ * @param {string} memoryKey  the channel's conversation key
  * @param {string} userMessage  what they said, mention already stripped
  * @param {object} [speaker]
- * @param {boolean} [speaker.isPartner]  true when this is Alpha
- * @param {string} [speaker.speakerName]  display name, for everyone else
+ * @param {string} [speaker.speakerId]  who is talking, for relationTo()
+ * @param {string} [speaker.speakerName]  display name, used to label the turn
  * @param {number|null} [speaker.alphaSilentMs]  ms since Alpha last spoke
  * @returns {Promise<string>} a reply that is always safe to send
  */
-async function generateAIResponse(memoryKey, userMessage, { isPartner = false, speakerName = null, alphaSilentMs = null } = {}) {
+async function generateAIResponse(memoryKey, userMessage, { speakerId = null, speakerName = null, alphaSilentMs = null } = {}) {
     if (!config.ai.apiKey) {
         return "my brain's not plugged in rn, tell the dev to set GROQ_API_KEY 💀";
     }
 
-    if (userBusy.get(memoryKey)) {
+    if (channelBusy.get(memoryKey)) {
         return 'wait… let me finish 😭';
     }
 
-    userBusy.set(memoryKey, true);
+    channelBusy.set(memoryKey, true);
 
     try {
         pruneMemory();
@@ -202,10 +276,17 @@ async function generateAIResponse(memoryKey, userMessage, { isPartner = false, s
         // leaves it in memory with nothing answering it — and history drifts
         // into a run of consecutive user messages that riri then reads as context.
         // Keep the last few turns only: enough for context, cheap on tokens.
+        //
+        // The turn is labelled with who said it, because one shared thread with
+        // unlabelled turns reads as a single person with wild mood swings — she
+        // answers iris with something meant for Alpha. The label is what lets
+        // her follow a room.
         const stored = conversationMemory.get(memoryKey);
+        const relation = relationTo(speakerId);
+        const label = speakerName || (relation === 'partner' ? 'Alpha' : 'someone');
         const history = [
             ...(stored?.history || []),
-            { role: 'user', content: userMessage }
+            { role: 'user', content: `${label}: ${userMessage}` }
         ].slice(-config.ai.memoryTurns);
 
         const mood = pick(['playful', 'flirty', 'bratty', 'soft', 'bored']);
@@ -217,7 +298,7 @@ async function generateAIResponse(memoryKey, userMessage, { isPartner = false, s
                 messages: [
                     {
                         role: 'system',
-                        content: `${SYSTEM_PROMPT}\n\n${audienceLine(isPartner, speakerName, alphaSilentMs)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
+                        content: `${SYSTEM_PROMPT}\n\n${contextLine({ relation, speakerName, alphaSilentMs, mood })}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
                     },
                     ...history,
                 ],
@@ -278,41 +359,8 @@ async function generateAIResponse(memoryKey, userMessage, { isPartner = false, s
         if (status === 400 || status === 404) return "my brain model is gone, tell the dev to check GROQ_MODEL 💀";
         return "nah i lost my train of thought 💀";
     } finally {
-        userBusy.delete(memoryKey);
+        channelBusy.delete(memoryKey);
     }
-}
-
-// Last time riri butted into each channel, so she can't chain interjections.
-const lastInterjection = new Map();
-
-/**
- * Roll for an unprompted interjection in this channel.
- *
- * Consumes the roll: a winning call stamps the cooldown immediately rather than
- * waiting for the reply to land, so a slow or failed generation can't leave the
- * channel open for another roll on the very next message.
- *
- * @param {string} channelId
- * @param {() => number} [random] injectable for tests
- * @returns {boolean}
- */
-function shouldInterject(channelId, random = Math.random) {
-    if (!config.ai.interjectEnabled) return false;
-
-    // Explicit "never" check: falling back to 0 would read as "interjected at
-    // the epoch", which only clears the cooldown because real clocks are large.
-    const last = lastInterjection.get(channelId);
-    if (last !== undefined && Date.now() - last < config.ai.interjectCooldownMs) return false;
-
-    if (random() >= config.ai.interjectChance) return false;
-
-    lastInterjection.set(channelId, Date.now());
-    return true;
-}
-
-/** Drop interjection cooldowns. Tests only. */
-function resetInterjections() {
-    lastInterjection.clear();
 }
 
 /** Wipe a conversation's memory. Used by `.forget`. */
@@ -360,6 +408,8 @@ module.exports = {
     rememberReply,
     isRiriMessage,
     rememberAssistantTurn,
-    shouldInterject,
-    resetInterjections
+    // Exported for the tests — they are how the persona's wiring is checked
+    // without spending a Groq call.
+    relationTo,
+    contextLine
 };

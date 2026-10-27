@@ -16,7 +16,7 @@ A modular, production-ready Discord bot built with Node.js and discord.js v14.
   never repeats until the whole pool has been used, tracked per server.
 - `.tt` - Role-restricted CS:GO / Valorant toxic trash talk generator (fetches dynamically from external repo) 🔒
 - `.quote` - Generates a styled image quote of the replied message
-- `.forget` - Clears conversation history with Riri for the user
+- `.forget` - Clears the channel's conversation history with Riri
 - `.gay [@user]` - Dynamically toggle reaction targets
 
 ### Moderation Tools
@@ -109,17 +109,24 @@ Announcements ping `@everyone`. Configure via `TWITCH_CLIENT_ID`,
 - `.shame` - Ranks who spends the most time deafened in voice
 - `.say [#channel] <message>` - Says something as the bot 🔒
 - **Passive Features** - Automatically reacts to a specific user's non-command messages with 🇬 🇦 🇾 combinations.
-- **Riri** - Mention the bot to talk to her. She is written as one specific
-  person's girlfriend: warm and clingy with him, friendly but uninterested with
-  everyone else. Set by `AI_PARTNER_USER_ID`.
+- **Riri** - Mention the bot to talk to her. She only talks in one channel
+  (`AI_HOME_CHANNEL_ID`); mentioned anywhere else she points at it once, then
+  stays quiet for 10 minutes so the redirect cannot be used to spam a channel.
+  In that channel everyone shares ONE conversation rather than a private thread
+  each, so someone chiming in on what another person said carries on the same
+  chat instead of starting a new one. Each turn is labelled with who said it,
+  which is what lets her keep track of a room.
+  She is written as one specific person's girlfriend — clingy and flirty with
+  him (`AI_PARTNER_USER_ID`), friendly but uninterested with everyone else. Two
+  other people get special treatment: she calls `AI_DADDY_USER_ID` "daddy" (and
+  occasionally "sugar daddy" while she is flirting), and `AI_RIVAL_USER_ID` is
+  her rival, who she baits and who she bites back at. She swears, her humour is
+  dark, and she hears a double meaning in everything.
 - **Riri sulking** - If he hasn't posted anywhere in the server for 3 hours she
   says so in the home channel, and gets sharper about it at 6h and 12h. She is
   rate-limited to one message every 2 days, and that limit is NOT reset by him
   turning up — otherwise a day of on-and-off chatting earns several sulks.
   Tuned with `CLINGY_*`, off with `CLINGY_ENABLED=false`.
-- **Riri interjections** - She occasionally butts into a conversation unprompted
-  (~1 in 80 messages, at most once every 5 minutes per channel). Turn it off with
-  `AI_INTERJECT_ENABLED=false`.
 
 ---
 

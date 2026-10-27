@@ -2,8 +2,7 @@ const config = require('../utils/config');
 const {
     generateAIResponse,
     rememberReply,
-    isRiriMessage,
-    shouldInterject
+    isRiriMessage
 } = require('../utils/ai');
 const reactionManager = require('../utils/reactionManager');
 const clingyWatcher = require('../utils/clingyWatcher');
@@ -42,6 +41,34 @@ function resolveRiriPrompt(message, client) {
     return null;
 }
 
+// Riri lives in one channel. Addressed anywhere else she points at it once and
+// drops it — silence reads as a broken bot, and answering would mean keeping a
+// conversation going in a channel she is not supposed to be in.
+const lastRedirect = new Map();
+
+const REDIRECTS = [
+    'not in here. come say it in',
+    'wrong channel babe. i live in',
+    'i dont do this one. im in'
+];
+
+function pick(list) {
+    return list[Math.floor(Math.random() * list.length)];
+}
+
+async function redirectToHomeChannel(message) {
+    const last = lastRedirect.get(message.channel.id);
+    if (last !== undefined && Date.now() - last < config.ai.redirectCooldownMs) return;
+    lastRedirect.set(message.channel.id, Date.now());
+
+    await message
+        .reply({
+            content: `${pick(REDIRECTS)} <#${config.ai.homeChannelId}> \u{1F644}`,
+            allowedMentions: { repliedUser: false, parse: [] }
+        })
+        .catch(err => console.error('[AI REDIRECT ERROR]', err.message));
+}
+
 async function handleRiriChat(message, client) {
     const text = resolveRiriPrompt(message, client);
     if (text === null) return false;
@@ -51,12 +78,23 @@ async function handleRiriChat(message, client) {
         return false;
     }
 
-    const memoryKey = `${message.channel.id}:${message.author.id}`;
+    if (message.channel.id !== config.ai.homeChannelId) {
+        // A DM gets nothing: there is no channel to point at that makes sense
+        // there, and OWNER_ID forwarding has already had its go above.
+        if (!message.guild) return false;
+        await redirectToHomeChannel(message);
+        return true;
+    }
+
+    // Keyed by channel, not by channel+user: everyone in here shares one
+    // conversation, so someone chiming in on what another person said carries
+    // on the same thread instead of starting a private one.
+    const memoryKey = message.channel.id;
 
     try {
         await message.channel.sendTyping().catch(() => {});
         const reply = await generateAIResponse(memoryKey, text, {
-            isPartner: message.author.id === config.ai.partnerUserId,
+            speakerId: message.author.id,
             speakerName: message.member?.displayName || message.author.username,
             alphaSilentMs: clingyWatcher.silentMs()
         });
@@ -72,39 +110,6 @@ async function handleRiriChat(message, client) {
     }
 
     return true;
-}
-
-// Riri butting in on a conversation nobody invited her to. Deliberately placed
-// after command handling: an interjection should never eat a command, and a
-// one-word message isn't worth spending a Groq call on.
-const MIN_INTERJECT_LENGTH = 12;
-
-async function handleInterjection(message) {
-    const text = message.content.trim();
-    if (text.length < MIN_INTERJECT_LENGTH) return;
-    if (!shouldInterject(message.channel.id)) return;
-
-    try {
-        await message.channel.sendTyping().catch(() => {});
-        const reply = await generateAIResponse(
-            `${message.channel.id}:${message.author.id}`,
-            text,
-            {
-                isPartner: message.author.id === config.ai.partnerUserId,
-                speakerName: message.member?.displayName || message.author.username,
-                alphaSilentMs: clingyWatcher.silentMs()
-            }
-        );
-        const sent = await message.reply({
-            content: reply,
-            allowedMentions: { repliedUser: false, parse: [] }
-        });
-
-        rememberReply(sent.id);
-        console.log(`[AI] Interjected in #${message.channel.name || message.channel.id}.`);
-    } catch (err) {
-        console.error('[AI INTERJECT ERROR]', err);
-    }
 }
 
 async function handleDirectMessage(message, client) {
@@ -198,13 +203,6 @@ module.exports = {
                         .catch(() => {});
                 }
             }
-        }
-
-        // =========================
-        // RIRI — uninvited
-        // =========================
-        if (!isCommandHandled && message.guild) {
-            await handleInterjection(message);
         }
 
         // =========================

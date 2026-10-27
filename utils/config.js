@@ -92,33 +92,38 @@ module.exports = {
         // if riri starts saying her brain model is gone.
         model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
 
-        // How many past messages (user + riri combined) to carry as context.
-        memoryTurns: Number(process.env.AI_MEMORY_TURNS) || 8,
+        // How many past messages to carry as context. This is one shared thread
+        // per channel rather than one per person, so it needs more room than it
+        // used to — a handful of turns disappears fast with several people in it.
+        memoryTurns: Number(process.env.AI_MEMORY_TURNS) || 14,
 
         // Replies are 1-2 lines by design, so this stays small and fast.
         maxTokens: Number(process.env.AI_MAX_TOKENS) || 120,
 
         timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 20000,
 
-        // Riri butting in unprompted. The chance is rolled per eligible message;
-        // the cooldown stops her dominating a busy channel. Set the chance to 0
-        // to switch it off without touching the flag.
-        interjectChance: envNumber(process.env.AI_INTERJECT_CHANCE, 0.0125), // ~1 in 80
-        interjectCooldownMs: envNumber(process.env.AI_INTERJECT_COOLDOWN_MS, 5 * 60 * 1000),
-
-        // Riri is written as this person's girlfriend. She is warm with him and
-        // flatly uninterested in everyone else.
+        // Riri is written as this person's girlfriend. She is clingy and flirty
+        // with him and flatly uninterested in everyone else.
         partnerUserId: process.env.AI_PARTNER_USER_ID || '753892329982787624',
 
-        // Where she sulks when he goes quiet.
+        // She calls this one "daddy" — and, now and then when she is flirting,
+        // "sugar daddy". Blank it in .env to drop the bit.
+        daddyUserId: process.env.AI_DADDY_USER_ID || '671968512935198738',
+
+        // Her rival. She baits this one and bites when baited back.
+        rivalUserId: process.env.AI_RIVAL_USER_ID || '1135904133145178242',
+
+        // The one channel riri lives in. She only answers here, and this is
+        // where she sulks when the partner goes quiet. Mentions anywhere else
+        // get a one-line redirect instead of a conversation.
         homeChannelId: process.env.AI_HOME_CHANNEL_ID || '1322260150761033739',
+
+        // How often she bothers redirecting someone who mentioned her in the
+        // wrong channel. Per channel, so it cannot be used to spam.
+        redirectCooldownMs: envNumber(process.env.AI_REDIRECT_COOLDOWN_MS, 10 * 60 * 1000),
 
         get enabled() {
             return Boolean(this.apiKey);
-        },
-
-        get interjectEnabled() {
-            return envFlag(process.env.AI_INTERJECT_ENABLED) && this.enabled && this.interjectChance > 0;
         }
     },
 
