@@ -31,9 +31,10 @@ test('the partner gets the warm, flirty line', () => {
     assert.match(line, /flirty/);
 });
 
-test('zyco is daddy', () => {
+test('zyco is the sugar daddy who buys things', () => {
     const line = contextLine({ relation: 'daddy', speakerName: 'zyco', mood: 'bored' });
-    assert.match(line, /the one you call daddy/);
+    assert.match(line, /You call him daddy/);
+    assert.match(line, /buys you things/);
 });
 
 test('sugar daddy only comes out while she is flirting', () => {
@@ -48,11 +49,12 @@ test('sugar daddy only comes out while she is flirting', () => {
 test('sugar daddy stays rare even when she is flirting', () => {
     const line = contextLine({ relation: 'daddy', speakerName: 'zyco', mood: 'flirty' }, () => 0.9);
     assert.doesNotMatch(line, /SUGAR DADDY/);
-    assert.match(line, /the one you call daddy/);
+    assert.match(line, /You call him daddy/);
 });
 
-test('the rival gets told to bait and to bite', () => {
+test('the rival is a best friend and still gets baited', () => {
     const line = contextLine({ relation: 'rival', speakerName: 'iris' });
+    assert.match(line, /best friend/);
     assert.match(line, /rival/);
     assert.match(line, /[Bb]ait/);
     assert.match(line, /bite/);

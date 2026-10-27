@@ -118,10 +118,14 @@ Announcements ping `@everyone`. Configure via `TWITCH_CLIENT_ID`,
   which is what lets her keep track of a room.
   She is written as one specific person's girlfriend — clingy and flirty with
   him (`AI_PARTNER_USER_ID`), friendly but uninterested with everyone else. Two
-  other people get special treatment: she calls `AI_DADDY_USER_ID` "daddy" (and
-  occasionally "sugar daddy" while she is flirting), and `AI_RIVAL_USER_ID` is
-  her rival, who she baits and who she bites back at. She swears, her humour is
-  dark, and she hears a double meaning in everything.
+  other people get special treatment: `AI_DADDY_USER_ID` is her sugar daddy, who
+  spoils her and buys her things, so she calls him "daddy" and asks him for
+  stuff shamelessly (and he is "sugar daddy" now and then while she is
+  flirting). `AI_RIVAL_USER_ID` is her best friend *and* her rival — they
+  actually love each other and every conversation still turns into a
+  battleground within two messages, usually via a conspiracy theory they are
+  both committed to. She swears, her humour is dark, and she hears a double
+  meaning in everything.
 - **Riri sulking** - If he hasn't posted anywhere in the server for 3 hours she
   says so in the home channel, and gets sharper about it at 6h and 12h. She is
   rate-limited to one message every 2 days, and that limit is NOT reset by him
