@@ -268,7 +268,7 @@ function pruneMemory() {
  */
 async function generateAIResponse(memoryKey, userMessage, { speakerId = null, speakerName = null, alphaSilentMs = null } = {}) {
     if (!config.ai.apiKey) {
-        return "my brain's not plugged in rn, tell the dev to set GROQ_API_KEY 💀";
+        return "NOVA UNPLUGGED ME FOR NO REASON 💀";
     }
 
     if (channelBusy.get(memoryKey)) {
