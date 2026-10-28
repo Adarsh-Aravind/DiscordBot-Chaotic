@@ -116,22 +116,26 @@ Announcements ping `@everyone`. Configure via `TWITCH_CLIENT_ID`,
   each, so someone chiming in on what another person said carries on the same
   chat instead of starting a new one. Each turn is labelled with who said it,
   which is what lets her keep track of a room.
-  She is written as one specific person's girlfriend — clingy and flirty with
-  him (`AI_PARTNER_USER_ID`), friendly but uninterested with everyone else. Two
-  other people get special treatment: `AI_DADDY_USER_ID` is her sugar daddy, who
-  spoils her and buys her things, so she calls him "daddy" and asks him for
-  stuff shamelessly (and he is "sugar daddy" now and then while she is
-  flirting). `AI_RIVAL_USER_ID` is her best friend *and* her rival — they
-  actually love each other and every conversation still turns into a
-  battleground within two messages, usually via a conspiracy theory they are
-  both committed to. She is a goth baddie: she swears, her humour is dark, she
-  hears a double meaning in everything, and she talks in new-gen slang (slay,
-  ate, mid, delulu, bffr) without ever explaining a word of it.
+  She is a goth baddie with bitch energy, girl-talk as her first language, a
+  conspiracy habit and strong opinions about The Weeknd — clingy and soft with
+  her boyfriend, mean for sport with everyone else.
+- **Riri's cast** - She knows who she is talking to, by user ID rather than by
+  nickname, so renaming yourself Alpha gets you nothing. Alpha is her boyfriend
+  (`AI_PARTNER_USER_ID`), zyco is his dad and so her father in law
+  (`AI_FATHER_IN_LAW_USER_ID`), iris is her sidechick and best friend
+  (`AI_SIDECHICK_USER_ID`), SR is who she is secretary to (`AI_BOSS_USER_ID`),
+  and rogue (`AI_ROGUE_USER_ID`) and sam (`AI_SAM_USER_ID`) are a couple she is
+  best friend to both halves of. Anyone else is a stranger.
+  Her memory labels each of them by their cast name, which is what lets her keep
+  track of who said what in a shared channel across nickname changes.
 - **Riri sulking** - If he hasn't posted anywhere in the server for 3 hours she
   says so in the home channel, and gets sharper about it at 6h and 12h. She is
   rate-limited to one message every 2 days, and that limit is NOT reset by him
   turning up — otherwise a day of on-and-off chatting earns several sulks.
   Tuned with `CLINGY_*`, off with `CLINGY_ENABLED=false`.
+- **Riri interjections** - She occasionally butts into her home channel
+  unprompted (~1 in 80 messages, at most once every 5 minutes). Turn it off with
+  `AI_INTERJECT_ENABLED=false`.
 
 ---
 

@@ -2,7 +2,8 @@ const config = require('../utils/config');
 const {
     generateAIResponse,
     rememberReply,
-    isRiriMessage
+    isRiriMessage,
+    shouldInterject
 } = require('../utils/ai');
 const reactionManager = require('../utils/reactionManager');
 const clingyWatcher = require('../utils/clingyWatcher');
@@ -48,8 +49,8 @@ const lastRedirect = new Map();
 
 const REDIRECTS = [
     'not in here. come say it in',
-    'wrong channel babe, i live in',
-    'bffr. im in'
+    'wrong channel babe. i live in',
+    'i dont do this one. im in'
 ];
 
 function pick(list) {
@@ -110,6 +111,38 @@ async function handleRiriChat(message, client) {
     }
 
     return true;
+}
+
+// Riri butting in on a conversation nobody invited her to. Deliberately placed
+// after command handling: an interjection should never eat a command, and a
+// one-word message isn't worth spending a Groq call on.
+const MIN_INTERJECT_LENGTH = 12;
+
+async function handleInterjection(message) {
+    // She lives in one channel, so she butts in there and nowhere else.
+    if (message.channel.id !== config.ai.homeChannelId) return;
+
+    const text = message.content.trim();
+    if (text.length < MIN_INTERJECT_LENGTH) return;
+    if (!shouldInterject(message.channel.id)) return;
+
+    try {
+        await message.channel.sendTyping().catch(() => {});
+        const reply = await generateAIResponse(message.channel.id, text, {
+            speakerId: message.author.id,
+            speakerName: message.member?.displayName || message.author.username,
+            alphaSilentMs: clingyWatcher.silentMs()
+        });
+        const sent = await message.reply({
+            content: reply,
+            allowedMentions: { repliedUser: false, parse: [] }
+        });
+
+        rememberReply(sent.id);
+        console.log(`[AI] Interjected in #${message.channel.name || message.channel.id}.`);
+    } catch (err) {
+        console.error('[AI INTERJECT ERROR]', err);
+    }
 }
 
 async function handleDirectMessage(message, client) {
@@ -203,6 +236,13 @@ module.exports = {
                         .catch(() => {});
                 }
             }
+        }
+
+        // =========================
+        // RIRI — uninvited
+        // =========================
+        if (!isCommandHandled && message.guild) {
+            await handleInterjection(message);
         }
 
         // =========================

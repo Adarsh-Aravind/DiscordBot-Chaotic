@@ -104,7 +104,7 @@ module.exports = {
             name: '✨ Passive Features',
             value:
                 `Mention <@${client.user.id}> at the start of a message to chat with **riri** — ` +
-                `she is <@${config.ai.partnerUserId}>'s girlfriend and will remind you of it. ` +
+                `goth baddie, <@${config.ai.partnerUserId}>'s girlfriend, and meaner than you. ` +
                 'after that just reply to her messages to keep talking.\n' +
                 `Stay deafened in voice too long and you get parked in <#${config.afk.channelId}>.\n` +
                 `Reacts to messages from a certain someone with 🇬 🇦 🇾 — toggle who with \`${config.prefix}gay @user\`.`,

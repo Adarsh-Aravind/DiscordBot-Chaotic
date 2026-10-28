@@ -102,16 +102,48 @@ module.exports = {
 
         timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 20000,
 
-        // Riri is written as this person's girlfriend. She is clingy and flirty
-        // with him and flatly uninterested in everyone else.
+        // Riri butting in unprompted. The chance is rolled per eligible message;
+        // the cooldown stops her dominating a busy channel. Set the chance to 0
+        // to switch it off without touching the flag.
+        interjectChance: envNumber(process.env.AI_INTERJECT_CHANCE, 0.0125), // ~1 in 80
+        interjectCooldownMs: envNumber(process.env.AI_INTERJECT_COOLDOWN_MS, 5 * 60 * 1000),
+
+        // Riri is written as this person's girlfriend. She is warm with him and
+        // flatly uninterested in everyone else.
         partnerUserId: process.env.AI_PARTNER_USER_ID || '753892329982787624',
 
-        // She calls this one "daddy" — and, now and then when she is flirting,
-        // "sugar daddy". Blank it in .env to drop the bit.
-        daddyUserId: process.env.AI_DADDY_USER_ID || '671968512935198738',
-
-        // Her rival. She baits this one and bites when baited back.
-        rivalUserId: process.env.AI_RIVAL_USER_ID || '1135904133145178242',
+        // The people riri actually has a history with. Anyone not in here is a
+        // stranger she talks to like a person — the cast is what stops her
+        // treating her boyfriend's dad and her best mate's boyfriend the same.
+        //
+        // `name` is also the label her memory uses for that person's turns, so
+        // she follows who said what even when someone changes their nickname.
+        cast: {
+            alpha: {
+                id: process.env.AI_PARTNER_USER_ID || '753892329982787624',
+                name: 'Alpha'
+            },
+            zyco: {
+                id: process.env.AI_FATHER_IN_LAW_USER_ID || '671968512935198738',
+                name: 'zyco'
+            },
+            iris: {
+                id: process.env.AI_SIDECHICK_USER_ID || '1135904133145178242',
+                name: 'iris'
+            },
+            sr: {
+                id: process.env.AI_BOSS_USER_ID || '659030782890737685',
+                name: 'SR'
+            },
+            rogue: {
+                id: process.env.AI_ROGUE_USER_ID || '589420254283956224',
+                name: 'rogue'
+            },
+            sam: {
+                id: process.env.AI_SAM_USER_ID || '795189057059553300',
+                name: 'sam'
+            }
+        },
 
         // The one channel riri lives in. She only answers here, and this is
         // where she sulks when the partner goes quiet. Mentions anywhere else
@@ -124,6 +156,10 @@ module.exports = {
 
         get enabled() {
             return Boolean(this.apiKey);
+        },
+
+        get interjectEnabled() {
+            return envFlag(process.env.AI_INTERJECT_ENABLED) && this.enabled && this.interjectChance > 0;
         }
     },
 

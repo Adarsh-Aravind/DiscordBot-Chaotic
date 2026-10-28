@@ -1,82 +1,69 @@
-// Riri's per-message wiring: who she is talking to, and how that changes the
-// system prompt. Set before config loads.
+// Riri's per-message wiring: who she is talking to, and whether Alpha has
+// actually gone quiet. Set before config loads.
 process.env.GROQ_API_KEY = 'test-key';
-process.env.AI_PARTNER_USER_ID = 'alpha-id';
-process.env.AI_DADDY_USER_ID = 'zyco-id';
-process.env.AI_RIVAL_USER_ID = 'iris-id';
 process.env.CLINGY_SILENCE_MS = '10800000'; // 3h
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { relationTo, contextLine } = require('../utils/ai');
+const config = require('../utils/config');
+const { audienceLine, castMemberFor, labelFor } = require('../utils/ai');
 
 const THREE_HOURS = 10_800_000;
+const CAST = config.ai.cast;
 
-test('relationTo recognises the people who matter', () => {
-    assert.strictEqual(relationTo('alpha-id'), 'partner');
-    assert.strictEqual(relationTo('zyco-id'), 'daddy');
-    assert.strictEqual(relationTo('iris-id'), 'rival');
-    assert.strictEqual(relationTo('someone-else'), 'other');
+test('each of her people is named with what they are to her', () => {
+    assert.match(audienceLine(CAST.alpha.id), /boyfriend/);
+    assert.match(audienceLine(CAST.zyco.id), /father in law/);
+    assert.match(audienceLine(CAST.iris.id), /sidechick/);
+    assert.match(audienceLine(CAST.sr.id), /secretary/i);
+    assert.match(audienceLine(CAST.rogue.id), /sam/);
+    assert.match(audienceLine(CAST.sam.id), /rogue/);
 });
 
-test('relationTo does not match an unknown speaker to a blank id', () => {
-    // A missing author id must not collide with an unconfigured relationship.
-    assert.strictEqual(relationTo(null), 'other');
-    assert.strictEqual(relationTo(''), 'other');
-});
-
-test('the partner gets the warm, flirty line', () => {
-    const line = contextLine({ relation: 'partner', speakerName: 'Alpha' });
-    assert.match(line, /boyfriend/);
-    assert.match(line, /flirty/);
-});
-
-test('zyco is the sugar daddy who buys things', () => {
-    const line = contextLine({ relation: 'daddy', speakerName: 'zyco', mood: 'bored' });
-    assert.match(line, /You call him daddy/);
-    assert.match(line, /buys you things/);
-});
-
-test('sugar daddy only comes out while she is flirting', () => {
-    // Even a guaranteed roll loses if the mood is wrong.
-    const bored = contextLine({ relation: 'daddy', speakerName: 'zyco', mood: 'bored' }, () => 0);
-    assert.doesNotMatch(bored, /SUGAR DADDY/);
-
-    const flirty = contextLine({ relation: 'daddy', speakerName: 'zyco', mood: 'flirty' }, () => 0);
-    assert.match(flirty, /SUGAR DADDY/);
-});
-
-test('sugar daddy stays rare even when she is flirting', () => {
-    const line = contextLine({ relation: 'daddy', speakerName: 'zyco', mood: 'flirty' }, () => 0.9);
-    assert.doesNotMatch(line, /SUGAR DADDY/);
-    assert.match(line, /You call him daddy/);
-});
-
-test('the rival is a best friend and still gets baited', () => {
-    const line = contextLine({ relation: 'rival', speakerName: 'iris' });
-    assert.match(line, /best friend/);
-    assert.match(line, /rival/);
-    assert.match(line, /[Bb]ait/);
-    assert.match(line, /bite/);
+test('the cast is matched on id, not on whatever they call themselves', () => {
+    // A nickname claiming to be Alpha gets no relationship line.
+    const line = audienceLine('999999999999999999', 'Alpha');
+    assert.doesNotMatch(line, /boyfriend/);
+    assert.match(line, /Not one of your people/);
 });
 
 test('anyone else is just a person, by name', () => {
-    assert.match(contextLine({ relation: 'other', speakerName: 'nova' }), /nova/);
+    assert.match(audienceLine('999999999999999999', 'nova'), /nova/);
     // No name available still has to read as a sentence.
-    assert.match(contextLine({ relation: 'other' }), /someone else/);
+    assert.match(audienceLine(null, null), /someone else/);
 });
 
 test('Alpha is only mentioned as quiet once he actually is', () => {
-    const quiet = contextLine({ relation: 'other', speakerName: 'nova', alphaSilentMs: THREE_HOURS });
+    const quiet = audienceLine('999999999999999999', 'nova', THREE_HOURS);
     assert.match(quiet, /ALPHA HAS BEEN QUIET/);
 
     // Just under the threshold, and unknown, are both "nothing to say about him".
-    const nearly = contextLine({ relation: 'other', speakerName: 'nova', alphaSilentMs: THREE_HOURS - 1 });
+    const nearly = audienceLine('999999999999999999', 'nova', THREE_HOURS - 1);
     assert.doesNotMatch(nearly, /ALPHA HAS BEEN QUIET/);
-    assert.doesNotMatch(contextLine({ relation: 'other', speakerName: 'nova' }), /ALPHA/);
+    assert.doesNotMatch(audienceLine('999999999999999999', 'nova'), /ALPHA/);
 });
 
 test('the quiet-Alpha note reports the hours, not the milliseconds', () => {
-    const line = contextLine({ relation: 'other', speakerName: 'nova', alphaSilentMs: 6 * 60 * 60 * 1000 });
+    const line = audienceLine('999999999999999999', 'nova', 6 * 60 * 60 * 1000);
     assert.match(line, /about 6 hours/);
+});
+
+test('every cast member has a role line, so none can resolve to undefined', () => {
+    for (const [key, member] of Object.entries(CAST)) {
+        const line = audienceLine(member.id);
+        assert.doesNotMatch(line, /undefined/, `${key} has no role line`);
+    }
+});
+
+test('a cast member is found by id and carries their key', () => {
+    assert.strictEqual(castMemberFor(CAST.iris.id)?.key, 'iris');
+    assert.strictEqual(castMemberFor('999999999999999999'), null);
+    assert.strictEqual(castMemberFor(null), null);
+});
+
+test('history labels the cast by their real name, not their nickname', () => {
+    // So she still knows it is him after he renames himself for the fifth time.
+    assert.strictEqual(labelFor(CAST.alpha.id, 'alph 🖤'), 'Alpha');
+    assert.strictEqual(labelFor('999999999999999999', 'nova'), 'nova');
+    assert.strictEqual(labelFor(null, null), 'someone');
 });
