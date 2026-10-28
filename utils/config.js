@@ -102,6 +102,19 @@ module.exports = {
 
         timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 20000,
 
+        // What a remembered turn is cut to. Her own replies cap at 300, and one
+        // pasted essay shouldn't ride along in every later request at ten times
+        // that — the whole history is resent on every single call.
+        historyCharLimit: Number(process.env.AI_HISTORY_CHAR_LIMIT) || 300,
+
+        // A 429 from Groq is usually a burst over the per-minute limit rather
+        // than a wall, so the request waits and tries again instead of giving
+        // up. The budget is the ceiling on that waiting: someone is watching
+        // the channel, and a daily-cap 429 asks for a wait no one will sit
+        // through. 0 retries switches it off.
+        maxRetries: envNumber(process.env.AI_MAX_RETRIES, 2),
+        retryBudgetMs: envNumber(process.env.AI_RETRY_BUDGET_MS, 3000),
+
         // Riri butting in unprompted. The chance is rolled per eligible message;
         // the cooldown stops her dominating a busy channel. Set the chance to 0
         // to switch it off without touching the flag.

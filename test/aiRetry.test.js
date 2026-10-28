@@ -1,0 +1,150 @@
+// What riri does when Groq says no. Set before config loads.
+process.env.GROQ_API_KEY = 'test-key';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const axios = require('axios');
+const config = require('../utils/config');
+const {
+    generateAIResponse,
+    clearMemory,
+    retryAfterMs,
+    trimTurn
+} = require('../utils/ai');
+
+/** An axios-shaped rejection, the way the real client hands them over. */
+function httpError(status, { retryAfter, message = '' } = {}) {
+    const err = new Error(message || `HTTP ${status}`);
+    err.response = {
+        status,
+        headers: retryAfter === undefined ? {} : { 'retry-after': retryAfter },
+        data: { error: { message } }
+    };
+    return err;
+}
+
+function reply(content) {
+    return { data: { choices: [{ message: { content } }] } };
+}
+
+/** Quiet the [AI ERROR] lines these tests deliberately provoke. */
+function hushLogs(t) {
+    t.mock.method(console, 'error', () => {});
+    t.mock.method(console, 'warn', () => {});
+}
+
+test('the wait Groq asks for is read off the header', () => {
+    assert.strictEqual(retryAfterMs(httpError(429, { retryAfter: '2' })), 2000);
+    // Groq sends fractional seconds, which a seconds-only parse would floor to 0.
+    assert.strictEqual(retryAfterMs(httpError(429, { retryAfter: '1.5' })), 1500);
+});
+
+test('the wait is also read out of the error body, when there is no header', () => {
+    const burst = httpError(429, { message: 'Rate limit reached. Please try again in 7.66s' });
+    assert.strictEqual(retryAfterMs(burst), 7660);
+
+    const spent = httpError(429, { message: 'Limit reached, please try again in 2m59.56s' });
+    assert.strictEqual(retryAfterMs(spent), 179_560);
+});
+
+test('a 429 that says nothing about waiting reports nothing', () => {
+    assert.strictEqual(retryAfterMs(httpError(429)), null);
+});
+
+test('a burst is waited out and she answers anyway', async t => {
+    hushLogs(t);
+
+    let calls = 0;
+    t.mock.method(axios, 'post', async () => {
+        calls += 1;
+        if (calls === 1) throw httpError(429, { retryAfter: '0.05' });
+        return reply('took you long enough 💅');
+    });
+
+    const answer = await generateAIResponse('burst-channel', 'hi');
+
+    assert.strictEqual(answer, 'took you long enough 💅');
+    assert.strictEqual(calls, 2, 'should have retried once');
+    clearMemory('burst-channel');
+});
+
+test('a 429 that outlasts the budget gives up, after using it', async t => {
+    hushLogs(t);
+
+    let calls = 0;
+    t.mock.method(axios, 'post', async () => {
+        calls += 1;
+        throw httpError(429, { retryAfter: '0.05' });
+    });
+
+    const answer = await generateAIResponse('spent-channel', 'hi');
+
+    assert.strictEqual(answer, 'slow down, i need a sec 😭');
+    assert.strictEqual(calls, config.ai.maxRetries + 1, 'should have used every retry');
+});
+
+test('a wait measured in hours is taken at its word, not sat through', async t => {
+    hushLogs(t);
+
+    let calls = 0;
+    t.mock.method(axios, 'post', async () => {
+        calls += 1;
+        throw httpError(429, { retryAfter: '7200' });
+    });
+
+    const answer = await generateAIResponse('capped-channel', 'hi');
+
+    // The daily allowance is gone — "i need a sec" would be a lie.
+    assert.strictEqual(answer, "i'm all talked out for today, come back tomorrow 😭");
+    assert.strictEqual(calls, 1, 'should not have retried');
+});
+
+test("a request that is wrong isn't sent again", async t => {
+    hushLogs(t);
+
+    let calls = 0;
+    t.mock.method(axios, 'post', async () => {
+        calls += 1;
+        throw httpError(400, { message: 'model decommissioned' });
+    });
+
+    const answer = await generateAIResponse('dead-model-channel', 'hi');
+
+    assert.match(answer, /GROQ_MODEL/);
+    assert.strictEqual(calls, 1, 'a 400 is the same 400 every time');
+});
+
+test('a remembered turn is cut to a chat-sized line', () => {
+    const essay = 'a'.repeat(2000);
+    const kept = trimTurn(essay);
+
+    assert.strictEqual(kept.length, config.ai.historyCharLimit);
+    assert.ok(kept.endsWith('…'));
+
+    // Anything already short is left exactly as it was said.
+    assert.strictEqual(trimTurn('nova: hey'), 'nova: hey');
+});
+
+test('a pasted wall of text is not resent in full on the next message', async t => {
+    hushLogs(t);
+
+    const sent = [];
+    t.mock.method(axios, 'post', async (url, body) => {
+        sent.push(body.messages);
+        return reply('anyways 😏');
+    });
+
+    const essay = 'b'.repeat(2000);
+    await generateAIResponse('paste-channel', essay, { speakerName: 'nova' });
+    await generateAIResponse('paste-channel', 'still there?', { speakerName: 'nova' });
+
+    // Said once in full, because this turn was worth reading properly.
+    const first = sent[0].at(-1).content;
+    assert.ok(first.includes(essay), 'the turn itself should go out whole');
+
+    // Every request after that pays for it again, so only the gist is kept.
+    const remembered = sent[1].find(m => m.content.startsWith('nova: b'));
+    assert.strictEqual(remembered.content.length, config.ai.historyCharLimit);
+
+    clearMemory('paste-channel');
+});

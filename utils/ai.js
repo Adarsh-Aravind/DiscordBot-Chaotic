@@ -9,6 +9,8 @@ const config = require('./config');
 // not as two strangers talking to her through a wall.
 const conversationMemory = new Map();
 
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
 // Per-channel generation lock — stops the room queueing up a dozen parallel API
 // calls. It also means she answers one person at a time, which is the point.
 const channelBusy = new Map();
@@ -85,7 +87,6 @@ you will diagnose someone's entire personality from their star sign and be weird
 THE POLITICS (played as swagger, not a lecture):
 absolute feminism, matriarchy when, men are a design flaw
 man-eater by reputation, bisexual by fact, mildly misandrist as a personality trait
-one-liners only. never a speech, never a paragraph, never an explanation
 
 THE ROOM:
 this is ONE channel with several people in it and ONE conversation
@@ -120,7 +121,7 @@ this is the one place you go soft, and you will insist you didn't
 you are HAPPY when he turns up. that is the default. lead with that
 
 STYLE:
-short replies, 1-2 lines max
+short replies, 1-2 lines max. never a speech, never a paragraph, never bullet points
 casual lowercase texting, no punctuation perfectionism
 expressive: "😭", "💀", "🖤", "🙄", "😏", "💅", "🫦", "🔪"
 stretch words when you mean it: "noooo", "girlll", "STOP"
@@ -129,9 +130,7 @@ pick ONE or TWO traits per message. you are a person, not a list of adjectives
 
 RULES:
 NEVER say you are an AI, a model, or a bot
-NEVER give long explanations or bullet points
-NEVER switch to a formal, helpful, or educational tone
-NEVER lecture or add disclaimers
+NEVER switch to a formal, helpful or educational tone, lecture, or add disclaimers
 if someone asks something factual, answer it like a friend would — quick and casual, then move on
 keep anything romantic or suggestive playful and implied, never explicit
 the misandry is a bit. keep it to jokes about men in general, never a real threat to a real person
@@ -270,6 +269,99 @@ function pruneMemory() {
     }
 }
 
+// Worth another go: a rate-limit burst, or a wobble on Groq's side. A 400 or a
+// 401 means the request itself is wrong, and sending it again only spends the
+// budget arriving at the same answer.
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * How long Groq asked us to wait, in ms, or null if it didn't say.
+ *
+ * The header is seconds per the HTTP spec, but Groq sends fractional values and
+ * also states the wait in the error body, so both are read.
+ *
+ * @param {Error} err  an axios error
+ * @returns {number|null}
+ */
+function retryAfterMs(err) {
+    const seconds = Number(err.response?.headers?.['retry-after']);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+
+    // "Rate limit reached ... Please try again in 2m59.56s"
+    const stated = (err.response?.data?.error?.message || '')
+        .match(/try again in (?:(\d+)m)?([\d.]+)s/i);
+    if (stated) return (Number(stated[1] || 0) * 60 + Number(stated[2])) * 1000;
+
+    return null;
+}
+
+/**
+ * POST to Groq, retrying the failures that are worth retrying.
+ *
+ * Groq answers 429 to two very different things: a short burst over the
+ * per-minute limit, and the daily allowance being gone. The first is worth
+ * riding out inside the request — someone is sat watching the channel, so the
+ * whole budget is a couple of seconds, long enough to cover a burst without her
+ * going quiet long enough to look broken. The second is not: the wait Groq asks
+ * for there is measured in minutes or hours, and holding the channel lock that
+ * long to arrive at the same answer is worse than telling them. So a wait that
+ * doesn't fit in what's left of the budget is taken at its word and thrown.
+ *
+ * @param {object} body  the chat-completions payload
+ * @returns {Promise<import('axios').AxiosResponse>}
+ */
+async function postCompletion(body) {
+    const deadline = Date.now() + config.ai.retryBudgetMs;
+    let attempt = 0;
+
+    for (;;) {
+        try {
+            return await axios.post(GROQ_URL, body, {
+                headers: {
+                    Authorization: `Bearer ${config.ai.apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                timeout: config.ai.timeoutMs,
+            });
+        } catch (err) {
+            const status = err.response?.status;
+
+            // Exponential, with jitter: a room that all hit the limit on the
+            // same message shouldn't come back in lockstep and trip it again.
+            const backoff = 250 * 2 ** attempt + Math.random() * 100;
+            const wait = Math.max(retryAfterMs(err) ?? 0, backoff);
+
+            const worthRetrying = RETRY_STATUSES.has(status)
+                && attempt < config.ai.maxRetries
+                && Date.now() + wait <= deadline;
+
+            if (!worthRetrying) throw err;
+
+            attempt += 1;
+            console.warn(`[AI] ${status} from Groq, retrying in ${Math.round(wait)}ms (${attempt}/${config.ai.maxRetries})`);
+            await sleep(wait);
+        }
+    }
+}
+
+/**
+ * Cut a turn down to what's worth remembering of it.
+ *
+ * Her own replies are capped at 300 characters, but nothing capped what other
+ * people said, so one pasted wall of text rode along in every request for the
+ * rest of the conversation — and was paid for again on each of them.
+ *
+ * @param {string} content
+ */
+function trimTurn(content) {
+    const limit = config.ai.historyCharLimit;
+    return content.length > limit
+        ? `${content.slice(0, limit - 1).trimEnd()}…`
+        : content;
+}
+
 /**
  * Ask riri for a reply.
  *
@@ -320,30 +412,20 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
             'conspiratorial', 'materialistic'
         ]);
 
-        const response = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',
-            {
-                model: config.ai.model,
-                messages: [
-                    {
-                        role: 'system',
-                        content: `${SYSTEM_PROMPT}\n\n${audienceLine(speakerId, speakerName, alphaSilentMs)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
-                    },
-                    ...history,
-                ],
-                temperature: 0.9,
-                top_p: 0.95,
-                max_tokens: config.ai.maxTokens,
-                stream: false,
-            },
-            {
-                headers: {
-                    Authorization: `Bearer ${config.ai.apiKey}`,
-                    'Content-Type': 'application/json',
+        const response = await postCompletion({
+            model: config.ai.model,
+            messages: [
+                {
+                    role: 'system',
+                    content: `${SYSTEM_PROMPT}\n\n${audienceLine(speakerId, speakerName, alphaSilentMs)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
                 },
-                timeout: config.ai.timeoutMs,
-            }
-        );
+                ...history,
+            ],
+            temperature: 0.9,
+            top_p: 0.95,
+            max_tokens: config.ai.maxTokens,
+            stream: false,
+        });
 
         const choice = response?.data?.choices?.[0]?.message;
         let reply = choice?.content?.trim();
@@ -370,9 +452,13 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
         }
 
         // Both turns land together, now that there is a reply worth keeping.
+        // Trimmed on the way in rather than on the way out: this turn's message
+        // was worth sending in full, but every request after this one pays for
+        // it again, and at that point the gist of it is enough.
         conversationMemory.set(memoryKey, {
             history: [...history, { role: 'assistant', content: reply }]
-                .slice(-config.ai.memoryTurns),
+                .slice(-config.ai.memoryTurns)
+                .map(turn => ({ ...turn, content: trimTurn(turn.content) })),
             lastSeen: Date.now()
         });
 
@@ -382,7 +468,14 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
         console.error('[AI ERROR]', config.ai.model, status || '', err.response?.data?.error?.message || err.message);
 
         if (status === 401) return "my keys got revoked apparently 💀";
-        if (status === 429) return 'slow down, i need a sec 😭';
+        // Retried already, so a 429 reaching here is one the budget couldn't
+        // cover. Past a couple of minutes it isn't a burst — the allowance is
+        // gone for the day, and "i need a sec" would be a lie.
+        if (status === 429) {
+            return retryAfterMs(err) > 120_000
+                ? "i'm all talked out for today, come back tomorrow 😭"
+                : 'slow down, i need a sec 😭';
+        }
         // Groq retires models regularly, and a dead GROQ_MODEL is otherwise
         // indistinguishable from the network being down.
         if (status === 400 || status === 404) return "my brain model is gone, tell the dev to check GROQ_MODEL 💀";
@@ -476,5 +569,7 @@ module.exports = {
     // spending a Groq call.
     audienceLine,
     castMemberFor,
-    labelFor
+    labelFor,
+    retryAfterMs,
+    trimTurn
 };
