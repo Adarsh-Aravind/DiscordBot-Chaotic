@@ -371,15 +371,24 @@ function trimTurn(content) {
  * @param {string} [speaker.speakerId]  Discord user id, matched against the cast
  * @param {string} [speaker.speakerName]  display name, used when they aren't cast
  * @param {number|null} [speaker.alphaSilentMs]  ms since Alpha last spoke
- * @returns {Promise<string>} a reply that is always safe to send
+ * @param {boolean} [speaker.unprompted]  nobody asked her, so silence is allowed
+ * @returns {Promise<string|null>} a reply that is always safe to send, or null
+ *   when she was butting in and has nothing worth butting in with
  */
-async function generateAIResponse(memoryKey, userMessage, { speakerId = null, speakerName = null, alphaSilentMs = null } = {}) {
+async function generateAIResponse(memoryKey, userMessage, { speakerId = null, speakerName = null, alphaSilentMs = null, unprompted = false } = {}) {
+    // Lines that aren't really her talking. Someone who mentioned her is sat
+    // waiting on a reply, so there the seams are better than silence — but an
+    // interjection nobody asked for has no such excuse. "tell the dev to set
+    // GROQ_API_KEY", dropped unprompted into a conversation, is just the bot
+    // showing through, and "wait… let me finish" is addressed to no one.
+    const notHer = line => (unprompted ? null : line);
+
     if (!config.ai.apiKey) {
-        return "my brain's not plugged in rn, tell the dev to set GROQ_API_KEY 💀";
+        return notHer("my brain's not plugged in rn, tell the dev to set GROQ_API_KEY 💀");
     }
 
     if (channelBusy.get(memoryKey)) {
-        return 'wait… let me finish 😭';
+        return notHer('wait… let me finish 😭');
     }
 
     channelBusy.set(memoryKey, true);
@@ -447,8 +456,12 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
         reply = reply.replace(/^\*+|\*+$/g, '').trim();
         if (reply.length > 300) reply = `${reply.slice(0, 297).trimEnd()}…`;
 
+        // The deflections are in character, so they stand in fine for a reply
+        // someone is waiting on. Unprompted they have nothing to deflect —
+        // "try again but make it interesting" lands on a conversation that
+        // never asked her anything.
         if (BREAKS_CHARACTER.some(p => reply.toLowerCase().includes(p))) {
-            return pick(FALLBACK_MESSAGES);
+            return notHer(pick(FALLBACK_MESSAGES));
         }
 
         // Both turns land together, now that there is a reply worth keeping.
@@ -467,19 +480,19 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
         const status = err.response?.status;
         console.error('[AI ERROR]', config.ai.model, status || '', err.response?.data?.error?.message || err.message);
 
-        if (status === 401) return "my keys got revoked apparently 💀";
+        if (status === 401) return notHer("my keys got revoked apparently 💀");
         // Retried already, so a 429 reaching here is one the budget couldn't
         // cover. Past a couple of minutes it isn't a burst — the allowance is
         // gone for the day, and "i need a sec" would be a lie.
         if (status === 429) {
-            return retryAfterMs(err) > 120_000
+            return notHer(retryAfterMs(err) > 120_000
                 ? "i'm all talked out for today, come back tomorrow 😭"
-                : 'slow down, i need a sec 😭';
+                : 'slow down, i need a sec 😭');
         }
         // Groq retires models regularly, and a dead GROQ_MODEL is otherwise
         // indistinguishable from the network being down.
-        if (status === 400 || status === 404) return "my brain model is gone, tell the dev to check GROQ_MODEL 💀";
-        return "nah i lost my train of thought 💀";
+        if (status === 400 || status === 404) return notHer("my brain model is gone, tell the dev to check GROQ_MODEL 💀");
+        return notHer("nah i lost my train of thought 💀");
     } finally {
         channelBusy.delete(memoryKey);
     }

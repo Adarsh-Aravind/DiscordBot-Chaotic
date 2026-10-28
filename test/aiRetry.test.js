@@ -148,3 +148,65 @@ test('a pasted wall of text is not resent in full on the next message', async t 
 
     clearMemory('paste-channel');
 });
+
+test('an interjection nobody asked for stays quiet when Groq says no', async t => {
+    hushLogs(t);
+
+    t.mock.method(axios, 'post', async () => {
+        throw httpError(429, { retryAfter: '7200' });
+    });
+
+    // Butting into a conversation to apologise for a rate limit is the bot
+    // showing through, so she says nothing at all.
+    const butting = await generateAIResponse('quiet-channel', 'go on then', { unprompted: true });
+    assert.strictEqual(butting, null);
+
+    // Someone who actually mentioned her is still told what happened: they are
+    // sat waiting on a reply, and silence there looks worse than the seams.
+    const asked = await generateAIResponse('asked-channel', 'oi riri');
+    assert.match(asked, /talked out for today/);
+});
+
+test('an interjection still speaks when the model actually answers', async t => {
+    hushLogs(t);
+
+    t.mock.method(axios, 'post', async () => reply('your aura is beige today 💅'));
+
+    const butting = await generateAIResponse('chatty-channel', 'anyway so i told him', { unprompted: true });
+
+    assert.strictEqual(butting, 'your aura is beige today 💅');
+    clearMemory('chatty-channel');
+});
+
+test("an out-of-character reply isn't worth butting in with", async t => {
+    hushLogs(t);
+
+    t.mock.method(axios, 'post', async () => reply('As an AI language model, I cannot help with that.'));
+
+    // Prompted, a deflection stands in for the reply she owes them.
+    const asked = await generateAIResponse('ooc-asked', 'what are you');
+    assert.ok(asked && asked.length > 0);
+
+    // Unprompted there is nothing to deflect — she had nothing to say.
+    const butting = await generateAIResponse('ooc-butting', 'what are you', { unprompted: true });
+    assert.strictEqual(butting, null);
+});
+
+test('she does not interrupt herself to say wait', async t => {
+    hushLogs(t);
+
+    let release;
+    t.mock.method(axios, 'post', () => new Promise(resolve => {
+        release = () => resolve(reply('anyways 😏'));
+    }));
+
+    // The lock is taken synchronously, so the second call sees it immediately.
+    const answering = generateAIResponse('locked-channel', 'hi');
+    const butting = await generateAIResponse('locked-channel', 'and another thing', { unprompted: true });
+
+    assert.strictEqual(butting, null, '"wait… let me finish" is addressed to no one');
+
+    release();
+    assert.strictEqual(await answering, 'anyways 😏');
+    clearMemory('locked-channel');
+});

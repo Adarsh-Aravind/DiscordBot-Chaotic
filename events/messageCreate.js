@@ -131,8 +131,16 @@ async function handleInterjection(message) {
         const reply = await generateAIResponse(message.channel.id, text, {
             speakerId: message.author.id,
             speakerName: message.member?.displayName || message.author.username,
-            alphaSilentMs: clingyWatcher.silentMs()
+            alphaSilentMs: clingyWatcher.silentMs(),
+            unprompted: true
         });
+
+        // She had nothing worth saying. Nobody asked her to speak, so the roll
+        // is simply spent and she stays quiet — better than butting in with an
+        // apology for the rate limit. The cooldown was stamped when the roll
+        // was won, so this doesn't open the channel up to another go.
+        if (!reply) return;
+
         const sent = await message.reply({
             content: reply,
             allowedMentions: { repliedUser: false, parse: [] }
