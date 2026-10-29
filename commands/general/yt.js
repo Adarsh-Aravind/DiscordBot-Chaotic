@@ -1,5 +1,4 @@
 const { EmbedBuilder } = require('discord.js');
-const { isAuthorized } = require('../../utils/permissions');
 const config = require('../../utils/config');
 const youtubeWatcher = require('../../utils/youtubeWatcher');
 
@@ -9,10 +8,6 @@ module.exports = {
     restricted: true,
     description: 'YouTube notifier status. Usage: .yt | .yt check',
     async execute(message, args, client) {
-        if (!isAuthorized(message)) {
-            return message.reply('❌ You do not have permission to use this command.');
-        }
-
         if (!config.youtube.enabled) {
             return message.reply('⚠️ The YouTube watcher is not configured.');
         }

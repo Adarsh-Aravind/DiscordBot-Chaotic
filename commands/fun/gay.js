@@ -5,8 +5,6 @@ const {
     ButtonStyle
 } = require('discord.js');
 const reactionManager = require('../../utils/reactionManager');
-const roastManager = require('../../utils/roastManager');
-const { isAuthorized } = require('../../utils/permissions');
 const config = require('../../utils/config');
 
 // Button ids look like `gay:<targetId>` so the handler knows who to flip
@@ -46,11 +44,6 @@ module.exports = {
     buildPanel,
     BUTTON_PREFIX,
     async execute(message, args) {
-        if (!isAuthorized(message)) {
-            const roast = roastManager.getRandomRoast(message.guild?.id);
-            return message.reply(`Nice try, but you don't have the permissions. ${roast}`);
-        }
-
         const target = message.mentions.users.first();
 
         // No mention — just show who's on the list.

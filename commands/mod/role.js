@@ -1,15 +1,9 @@
-const { isAuthorized } = require('../../utils/permissions');
-
 module.exports = {
     name: 'role',
     guildOnly: true,
     restricted: true,
     description: 'Adds or removes a role from a member.',
     async execute(message, args) {
-        if (!isAuthorized(message)) {
-            return message.reply('You do not have permission to use this command.');
-        }
-
         const target = message.mentions.members.first();
         if (!target) return message.reply('Please mention a valid user to modify their role.');
 

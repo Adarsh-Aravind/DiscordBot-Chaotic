@@ -1,8 +1,8 @@
+const config = require('../utils/config');
 const youtubeWatcher = require('../utils/youtubeWatcher');
 const twitchWatcher = require('../utils/twitchWatcher');
 const presenceManager = require('../utils/presenceManager');
-const afkWatcher = require('../utils/afkWatcher');
-const deafenTracker = require('../utils/deafenTracker');
+const liveNickname = require('../utils/liveNickname');
 const clingyWatcher = require('../utils/clingyWatcher');
 const heartbeat = require('../utils/heartbeat');
 
@@ -16,11 +16,17 @@ module.exports = {
         youtubeWatcher.start(client);
         twitchWatcher.start(client);
 
-        // Voice states are cached by now, so this picks up someone who was
-        // already sitting there deafened while the bot was down.
-        afkWatcher.syncAll(client);
-        deafenTracker.syncAll(client);
-        deafenTracker.start(client);
+        // Says out loud whether the nickname flag is actually wired up, since
+        // an empty map used to be indistinguishable from a broken feature.
+        liveNickname.report();
+
+        // The watcher's own check syncs nicknames, so a sweep is only needed
+        // when it is never going to run and could leave a red dot stranded.
+        if (!config.twitch.enabled) {
+            liveNickname.sweep(client).catch(err =>
+                console.error('[LiveNick] Startup sweep failed:', err.message));
+        }
+
         clingyWatcher.start(client);
         heartbeat.start(client);
     },

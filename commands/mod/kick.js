@@ -1,15 +1,9 @@
-const { isAuthorized } = require('../../utils/permissions');
-
 module.exports = {
     name: 'kick',
     guildOnly: true,
     restricted: true,
     description: 'Kicks a member from the server.',
     async execute(message, args) {
-        if (!isAuthorized(message)) {
-            return message.reply('You do not have permission to use this command.');
-        }
-
         const target = message.mentions.members.first();
         if (!target) return message.reply('Please mention a valid user to kick.');
 

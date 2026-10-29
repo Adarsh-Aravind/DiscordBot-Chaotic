@@ -1,5 +1,4 @@
 const { EmbedBuilder } = require('discord.js');
-const { isAuthorized } = require('../../utils/permissions');
 const config = require('../../utils/config');
 
 module.exports = {
@@ -8,10 +7,6 @@ module.exports = {
     restricted: true,
     description: 'Adds the replied message to the Hall of Fame.',
     async execute(message, args, client) {
-        if (!isAuthorized(message)) {
-            return message.reply('❌ You do not have permission to use this command.');
-        }
-
         if (!message.reference) {
             return message.reply('❌ You must reply to a message to add it to the Hall of Fame!');
         }

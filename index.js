@@ -5,6 +5,10 @@ const { setTimeout: sleep } = require('node:timers/promises');
 const fs = require('fs');
 const path = require('path');
 
+const heartbeat = require('./utils/heartbeat');
+const presenceManager = require('./utils/presenceManager');
+const stateManager = require('./utils/stateManager');
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -119,6 +123,53 @@ async function login() {
 }
 
 login();
+
+// Clean shutdown.
+//
+// Without this, a `pm2 restart` and a crash looked identical from the outside:
+// the heartbeat simply stopped arriving, and the `stopping` flag it has always
+// sent was hardcoded false. Signing off makes the Live Ops panel able to tell a
+// deliberate restart from the bot falling over.
+//
+// Dragged users are also restored here — otherwise a restart mid-`.drag` leaves
+// them wherever they were last thrown, with the interval gone and nothing left
+// to put them back.
+const SHUTDOWN_GRACE_MS = 5000;
+let shuttingDown = false;
+
+async function shutdown(signal) {
+    // A second Ctrl-C should kill it now, not queue another teardown.
+    if (shuttingDown) {
+        console.warn(`${signal} again — exiting now.`);
+        process.exit(1);
+    }
+    shuttingDown = true;
+    console.log(`${signal} received, shutting down.`);
+
+    // Never hang: if teardown wedges, the process manager should still get its
+    // exit rather than waiting on us forever.
+    const guard = setTimeout(() => {
+        console.warn('Shutdown took too long — exiting anyway.');
+        process.exit(1);
+    }, SHUTDOWN_GRACE_MS);
+    guard.unref();
+
+    try {
+        await stateManager.restoreAll(client);
+        await heartbeat.farewell(client);
+        presenceManager.stop();
+        await client.destroy();
+    } catch (error) {
+        console.error('Error during shutdown:', error);
+    }
+
+    clearTimeout(guard);
+    process.exit(0);
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => shutdown(signal));
+}
 
 // Global Error Handlers (prevents bot from crashing on unhandled errors)
 process.on('unhandledRejection', (error) => {

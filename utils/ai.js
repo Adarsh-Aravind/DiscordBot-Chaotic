@@ -1,23 +1,31 @@
-const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const config = require('./config');
+const { readJson, writeJson } = require('./jsonStore');
 
 // Conversational memory, keyed by channel. One shared thread per channel rather
 // than one per person: riri lives in a single room, and someone chiming in on
 // what another person said should read as the same conversation carrying on,
 // not as two strangers talking to her through a wall.
-const conversationMemory = new Map();
+//
+// Persisted alongside the tracked reply ids. Those already survived a restart,
+// so a reply to one of her old messages was recognised as continuing a
+// conversation she then had no memory of — she'd answer as though the thread
+// had just started. Keeping both on disk closes that seam.
+const MEMORY_STATE_FILE = path.join(__dirname, '..', 'data', 'riri-memory.json');
+
+// Drop memory for anyone who hasn't talked in a while, so a long-running
+// process doesn't grow the Map forever. Declared before the load below, which
+// reads it to discard conversations that had already gone stale.
+const MEMORY_TTL_MS = 30 * 60 * 1000;
+
+const conversationMemory = loadMemory();
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // Per-channel generation lock — stops the room queueing up a dozen parallel API
 // calls. It also means she answers one person at a time, which is the point.
 const channelBusy = new Map();
-
-// Drop memory for anyone who hasn't talked in a while, so a long-running
-// process doesn't grow the Map forever.
-const MEMORY_TTL_MS = 30 * 60 * 1000;
 
 // IDs of messages riri has sent, so replying to one continues the conversation
 // without needing another mention. Bounded — oldest IDs fall off the front.
@@ -31,22 +39,48 @@ const MAX_TRACKED_REPLIES = 500;
 const ririMessageIds = loadTrackedReplies();
 
 function loadTrackedReplies() {
-    try {
-        const saved = JSON.parse(fs.readFileSync(REPLY_STATE_FILE, 'utf8'));
-        if (Array.isArray(saved)) return new Set(saved.filter(Boolean));
-    } catch {
-        // No file yet, or it's junk — start empty.
-    }
+    const saved = readJson(REPLY_STATE_FILE, null, 'AI');
+    if (Array.isArray(saved)) return new Set(saved.filter(Boolean));
     return new Set();
 }
 
 function saveTrackedReplies() {
-    try {
-        fs.mkdirSync(path.dirname(REPLY_STATE_FILE), { recursive: true });
-        fs.writeFileSync(REPLY_STATE_FILE, JSON.stringify([...ririMessageIds], null, 2));
-    } catch (err) {
-        console.error('[AI] Could not save tracked replies:', err.message);
+    writeJson(REPLY_STATE_FILE, [...ririMessageIds], 'AI');
+}
+
+/**
+ * Restore the saved conversations, dropping any that have already gone stale.
+ *
+ * A conversation older than the TTL would have been pruned had the process
+ * stayed up, so a restart is no reason to hand her a day-old thread as though
+ * it were still live.
+ */
+function loadMemory() {
+    const saved = readJson(MEMORY_STATE_FILE, null, 'AI');
+    const restored = new Map();
+    if (!saved || typeof saved !== 'object') return restored;
+
+    const cutoff = Date.now() - MEMORY_TTL_MS;
+    for (const [key, entry] of Object.entries(saved)) {
+        if (!Array.isArray(entry?.history) || typeof entry.lastSeen !== 'number') continue;
+        if (entry.lastSeen < cutoff) continue;
+
+        restored.set(key, {
+            history: entry.history
+                .filter(turn => turn && typeof turn.content === 'string' && turn.role)
+                .slice(-config.ai.memoryTurns),
+            lastSeen: entry.lastSeen
+        });
     }
+
+    if (restored.size > 0) {
+        console.log(`[AI] Restored ${restored.size} conversation(s) from disk.`);
+    }
+    return restored;
+}
+
+function saveMemory() {
+    writeJson(MEMORY_STATE_FILE, Object.fromEntries(conversationMemory), 'AI');
 }
 
 const SYSTEM_PROMPT = `
@@ -264,9 +298,14 @@ function pick(list) {
 
 function pruneMemory() {
     const cutoff = Date.now() - MEMORY_TTL_MS;
+    let dropped = false;
     for (const [key, entry] of conversationMemory) {
-        if (entry.lastSeen < cutoff) conversationMemory.delete(key);
+        if (entry.lastSeen < cutoff) {
+            conversationMemory.delete(key);
+            dropped = true;
+        }
     }
+    return dropped;
 }
 
 // Worth another go: a rate-limit burst, or a wobble on Groq's side. A 400 or a
@@ -474,6 +513,7 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
                 .map(turn => ({ ...turn, content: trimTurn(turn.content) })),
             lastSeen: Date.now()
         });
+        saveMemory();
 
         return reply;
     } catch (err) {
@@ -533,7 +573,9 @@ function resetInterjections() {
 
 /** Wipe a conversation's memory. Used by `.forget`. */
 function clearMemory(memoryKey) {
-    return conversationMemory.delete(memoryKey);
+    const had = conversationMemory.delete(memoryKey);
+    if (had) saveMemory();
+    return had;
 }
 
 /**
@@ -551,6 +593,7 @@ function rememberAssistantTurn(memoryKey, content) {
         .slice(-config.ai.memoryTurns);
 
     conversationMemory.set(memoryKey, { history, lastSeen: Date.now() });
+    saveMemory();
 }
 
 /** Record a message riri just sent, so replies to it are recognised. */

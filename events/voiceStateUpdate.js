@@ -1,15 +1,8 @@
 const stateManager = require('../utils/stateManager');
-const afkWatcher = require('../utils/afkWatcher');
-const deafenTracker = require('../utils/deafenTracker');
 
 module.exports = {
     name: 'voiceStateUpdate',
     async execute(oldState, newState) {
-        // Runs first, and off newState.id rather than newState.member, so a
-        // missing member object can't stop the AFK countdown from updating.
-        afkWatcher.handle(newState);
-        deafenTracker.handle(newState);
-
         // We only care about users currently being dragged
         if (!stateManager.has(newState.member.id)) return;
 
@@ -18,10 +11,13 @@ module.exports = {
         const isSelfDeafened = newState.selfDeaf;
 
         if (!isSelfMuted && !isSelfDeafened) {
-            // User unmuted and undeafened: restore them to original channel and clear interval
+            // User unmuted and undeafened: restore them to their original channel.
             const dragData = stateManager.get(newState.member.id);
-            clearInterval(dragData.intervalId);
-            
+
+            // Stops the timers too, and before the await — otherwise a tick
+            // firing mid-restore throws them straight back out again.
+            stateManager.remove(newState.member.id);
+
             try {
                 // Ensure they are still in a voice channel to be moved
                 if (newState.channelId) {
@@ -29,14 +25,9 @@ module.exports = {
                 }
             } catch (error) {
                 console.error(`Failed to move user ${newState.member.id} back to original channel:`, error);
-            } finally {
-                // Remove from state manager regardless of success/failure
-                stateManager.remove(newState.member.id);
             }
         } else if (!newState.channelId) {
             // User disconnected from voice completely
-            const dragData = stateManager.get(newState.member.id);
-            clearInterval(dragData.intervalId);
             stateManager.remove(newState.member.id);
         }
     },

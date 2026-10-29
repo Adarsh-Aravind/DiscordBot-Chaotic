@@ -1,5 +1,4 @@
 const { PermissionsBitField } = require('discord.js');
-const { isAuthorized } = require('../../utils/permissions');
 const config = require('../../utils/config');
 
 // Discord's hard cap on a single message.
@@ -19,10 +18,6 @@ module.exports = {
     restricted: true,
     description: 'Says something as the bot. Usage: .say [#channel] <message>',
     async execute(message, args) {
-        if (!isAuthorized(message)) {
-            return message.reply('❌ You do not have permission to use this command.');
-        }
-
         const words = [...args];
         let channel = message.channel;
 

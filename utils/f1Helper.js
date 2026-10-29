@@ -2,18 +2,61 @@ const { EmbedBuilder } = require('discord.js');
 
 const BASE_URL = 'https://api.jolpi.ca/ergast/f1/current';
 
-async function fetchData(endpoint) {
+// Ergast itself was retired at the end of 2024; api.jolpi.ca is the community
+// mirror that replaced it. Every F1 command goes through fetchData, and none of
+// this data changes more than once a race weekend, so an uncached `.f1` spam
+// meant a burst of identical requests at a free, volunteer-run service.
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+// A hanging request used to hang the command with it — there was no timeout at
+// all, so a stalled connection left the user staring at nothing indefinitely.
+const REQUEST_TIMEOUT_MS = 10_000;
+
+const cache = new Map();
+
+// Requests in flight, keyed the same way. Three people running `.f1` at once
+// should be one request, not three.
+const inFlight = new Map();
+
+async function request(url, endpoint) {
     try {
-        const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}/${endpoint}`;
         const response = await fetch(url, {
-            headers: { 'User-Agent': 'BitBot/1.0 (DiscordJS)' }
+            headers: { 'User-Agent': 'BitBot/1.0 (DiscordJS)' },
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
         });
         if (!response.ok) return null;
         return await response.json();
     } catch (e) {
-        console.error(`Error fetching F1 data for ${endpoint}:`, e);
+        console.error(`Error fetching F1 data for ${endpoint}:`, e.message);
         return null;
     }
+}
+
+async function fetchData(endpoint) {
+    const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}/${endpoint}`;
+
+    const hit = cache.get(url);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
+
+    // Join an identical request already on its way rather than starting another.
+    const pending = inFlight.get(url);
+    if (pending) return pending;
+
+    const promise = request(url, endpoint).finally(() => inFlight.delete(url));
+    inFlight.set(url, promise);
+
+    const data = await promise;
+
+    // Only cache a success. Caching a null would mean one blip left every F1
+    // command broken for the next ten minutes.
+    if (data !== null) cache.set(url, { at: Date.now(), data });
+
+    return data;
+}
+
+/** Drop everything cached. Tests, and anything that wants a forced refresh. */
+function clearCache() {
+    cache.clear();
 }
 
 function getCircuitImageUrl(circuitId) {
@@ -88,6 +131,8 @@ function formatRaceInfo(race) {
 
 module.exports = {
     fetchData,
+    clearCache,
+    CACHE_TTL_MS,
     getCircuitImageUrl,
     getDriverStandings,
     getConstructorStandings,

@@ -203,11 +203,6 @@ async function runCheck(client) {
             startedAt: stream.started_at
         };
         stateChanged = true;
-
-        // Fire and forget: a nickname the bot isn't allowed to change must not
-        // hold up the rest of the check.
-        liveNickname.flag(target.guild, login).catch(err =>
-            console.error(`[Twitch] Nickname flag failed for ${login}: ${err.message}`));
     }
 
     // Age out anyone who has stopped showing up, so their next go-live is a
@@ -227,14 +222,20 @@ async function runCheck(client) {
         if (entry.misses >= MISSES_BEFORE_OFFLINE) {
             delete state[login];
             console.log(`[Twitch] ${entry.name || login} went offline.`);
-
-            liveNickname.unflag(target.guild, login).catch(err =>
-                console.error(`[Twitch] Nickname restore failed for ${login}: ${err.message}`));
         }
         stateChanged = true;
     }
 
     if (stateChanged) saveState(state);
+
+    // Whoever is left in state is live as far as we're concerned, which carries
+    // the miss tolerance over: a single flaky reading can't strip someone's red
+    // dot and put it straight back. Awaited, but never allowed to fail the
+    // check — a nickname the bot can't change is not a broken poll.
+    await liveNickname
+        .sync(target.guild, new Set(Object.keys(state)))
+        .catch(err => console.error(`[Twitch] Nickname sync failed: ${err.message}`));
+
     return result;
 }
 

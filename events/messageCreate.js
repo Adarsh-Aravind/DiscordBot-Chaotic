@@ -6,7 +6,9 @@ const {
     shouldInterject
 } = require('../utils/ai');
 const reactionManager = require('../utils/reactionManager');
+const roastManager = require('../utils/roastManager');
 const clingyWatcher = require('../utils/clingyWatcher');
+const { isAuthorized } = require('../utils/permissions');
 
 // Matches a leading mention of the bot: <@id> or <@!id>, optionally after
 // whitespace. Anything after it is what the user actually said to riri.
@@ -232,6 +234,19 @@ module.exports = {
 
                 if (command.guildOnly && !message.guild) {
                     await message.reply('This command only works inside a server.');
+                    return;
+                }
+
+                // The `restricted` flag is enforced here rather than inside each
+                // command. It used to be documented as central but wasn't: all
+                // thirteen locked commands repeated the check by hand, so the
+                // flag only drove the 🔒 in `.help`, and a new command that
+                // declared it and forgot the check would have been wide open.
+                //
+                // Guild-only is checked above, so `message.member` exists by now.
+                if (command.restricted && !isAuthorized(message)) {
+                    const roast = roastManager.getRandomRoast(message.guild?.id);
+                    await message.reply(`Nice try, but you don't have the permissions. ${roast}`);
                     return;
                 }
 

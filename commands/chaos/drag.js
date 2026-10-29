@@ -1,7 +1,5 @@
 const { PermissionsBitField } = require('discord.js');
 const stateManager = require('../../utils/stateManager');
-const roastManager = require('../../utils/roastManager');
-const { isAuthorized } = require('../../utils/permissions');
 const config = require('../../utils/config');
 
 module.exports = {
@@ -10,11 +8,6 @@ module.exports = {
     restricted: true,
     description: 'Drags a self-muted or self-deafened user randomly across voice channels.',
     async execute(message, args) {
-        if (!isAuthorized(message)) {
-            const roast = roastManager.getRandomRoast(message.guild?.id);
-            return message.reply(`Nice try, but you don't have the permissions. ${roast}`);
-        }
-
         const target = message.mentions.members.first();
         if (!target) return message.reply('Please mention a valid user to drag.');
 
@@ -51,23 +44,34 @@ module.exports = {
 
         const channelsArray = Array.from(allChannels.values());
 
+        /** Put them back and stop. Shared by the timeout and the error paths. */
+        const release = async (reason) => {
+            stateManager.remove(target.id);
+            try {
+                if (target.voice.channelId) {
+                    await target.voice.setChannel(originalChannelId);
+                }
+            } catch (error) {
+                console.error(`Failed to restore ${target.id} after ${reason}:`, error.message);
+            }
+        };
+
         // Start interval
         const intervalId = setInterval(async () => {
             try {
                 // Fetch latest state just to be safe
                 const currentVoiceState = target.voice;
-                
+
                 // If the user left voice completely, fallback to stop moving
                 // voiceStateUpdate handles primary cleanups, but this is a fail-safe
                 if (!currentVoiceState.channelId) {
-                    clearInterval(intervalId);
                     stateManager.remove(target.id);
                     return;
                 }
 
                 const currentChannelId = currentVoiceState.channelId;
                 let nextChannel;
-                
+
                 // Pick a random channel that isn't their current one
                 do {
                     nextChannel = channelsArray[Math.floor(Math.random() * channelsArray.length)];
@@ -77,18 +81,35 @@ module.exports = {
             } catch (error) {
                 console.error(`Error dragging user ${target.id}:`, error);
                 // Clear on permanent error to avoid infinite loop
-                clearInterval(intervalId);
-                stateManager.remove(target.id);
+                await release('an error');
             }
         }, config.dragIntervalMs);
+
+        // A hard stop. The escape condition is the target unmuting, so someone
+        // who walks away still muted was dragged forever — a voice move every
+        // few seconds indefinitely, which is a lot of API calls for a joke and
+        // risks rate-limiting the whole bot.
+        const timeoutId = setTimeout(async () => {
+            console.log(`Drag on ${target.id} hit the ${config.dragMaxMs}ms cap.`);
+            await release('the time cap');
+            message
+                .channel.send(`⏱️ Done dragging ${target.user.tag} — they outlasted it.`)
+                .catch(() => {});
+        }, config.dragMaxMs);
+        timeoutId.unref?.();
 
         // Save state
         stateManager.set(target.id, {
             originalChannelId,
             intervalId,
+            timeoutId,
             guildId
         });
 
-        message.reply(`Started dragging ${target.user.tag}. They must unmute and undeafen to break free!`);
+        const capMinutes = Math.round(config.dragMaxMs / 60000);
+        message.reply(
+            `Started dragging ${target.user.tag}. They must unmute and undeafen to break free ` +
+            `— or wait it out for ${capMinutes} min.`
+        );
     },
 };
