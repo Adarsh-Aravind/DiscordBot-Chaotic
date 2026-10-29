@@ -239,33 +239,17 @@ function labelFor(speakerId, speakerName) {
 }
 
 /**
- * The two lines that change per message: who she is talking to, and whether
- * Alpha has actually gone quiet.
- *
- * The second one matters more than it looks. Without it she has no idea what
- * Alpha has been doing, so a prompt that tells her to be clingy makes her
- * accuse whoever is in front of her of ignoring her — while the real answer
- * is sitting in clingyWatcher's state file.
+ * The line that changes per message: who she is talking to.
  *
  * @param {string|null} speakerId  Discord user id, matched against the cast
  * @param {string|null} speakerName
- * @param {number|null} alphaSilentMs  ms since Alpha last spoke, null if unknown
  */
-function audienceLine(speakerId, speakerName, alphaSilentMs = null) {
-    const away = typeof alphaSilentMs === 'number' && alphaSilentMs >= config.clingy.silenceMs;
-
+function audienceLine(speakerId, speakerName) {
     const member = castMemberFor(speakerId);
-    const who = member
+
+    return member
         ? `YOU ARE TALKING TO: ${ROLE_LINES[member.key]}`
         : `YOU ARE TALKING TO: ${speakerName || 'someone else'}. Not one of your people. Talk to them like a person.`;
-
-    // Alpha is named only when there is actually something to say about him.
-    // Stating "he has been around" on every single request kept his name in
-    // front of the model constantly, and he ended up in replies that had
-    // nothing to do with him.
-    if (!away) return who;
-
-    return `${who} ALPHA HAS BEEN QUIET for about ${Math.round(alphaSilentMs / 3600000)} hours — you are allowed to be sour about it.`;
 }
 
 const FALLBACK_MESSAGES = [
@@ -409,12 +393,11 @@ function trimTurn(content) {
  * @param {object} [speaker]
  * @param {string} [speaker.speakerId]  Discord user id, matched against the cast
  * @param {string} [speaker.speakerName]  display name, used when they aren't cast
- * @param {number|null} [speaker.alphaSilentMs]  ms since Alpha last spoke
  * @param {boolean} [speaker.unprompted]  nobody asked her, so silence is allowed
  * @returns {Promise<string|null>} a reply that is always safe to send, or null
  *   when she was butting in and has nothing worth butting in with
  */
-async function generateAIResponse(memoryKey, userMessage, { speakerId = null, speakerName = null, alphaSilentMs = null, unprompted = false } = {}) {
+async function generateAIResponse(memoryKey, userMessage, { speakerId = null, speakerName = null, unprompted = false } = {}) {
     // Lines that aren't really her talking. Someone who mentioned her is sat
     // waiting on a reply, so there the seams are better than silence — but an
     // interjection nobody asked for has no such excuse. "tell the dev to set
@@ -465,7 +448,7 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
             messages: [
                 {
                     role: 'system',
-                    content: `${SYSTEM_PROMPT}\n\n${audienceLine(speakerId, speakerName, alphaSilentMs)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
+                    content: `${SYSTEM_PROMPT}\n\n${audienceLine(speakerId, speakerName)}\nCURRENT MOOD: ${mood}\nLet this mood subtly colour your next reply.`,
                 },
                 ...history,
             ],
@@ -578,24 +561,6 @@ function clearMemory(memoryKey) {
     return had;
 }
 
-/**
- * Drop something riri said into a conversation's history without going through
- * the model. Used for lines she sends on her own initiative — a sulk is still
- * something she said, and if it isn't in here she answers the reply to it with
- * no idea the conversation started.
- *
- * @param {string} memoryKey
- * @param {string} content
- */
-function rememberAssistantTurn(memoryKey, content) {
-    const stored = conversationMemory.get(memoryKey);
-    const history = [...(stored?.history || []), { role: 'assistant', content }]
-        .slice(-config.ai.memoryTurns);
-
-    conversationMemory.set(memoryKey, { history, lastSeen: Date.now() });
-    saveMemory();
-}
-
 /** Record a message riri just sent, so replies to it are recognised. */
 function rememberReply(messageId) {
     ririMessageIds.add(messageId);
@@ -618,7 +583,6 @@ module.exports = {
     clearMemory,
     rememberReply,
     isRiriMessage,
-    rememberAssistantTurn,
     shouldInterject,
     resetInterjections,
     // Exported for the tests — how the per-message wiring is checked without

@@ -1,14 +1,11 @@
-// Riri's per-message wiring: who she is talking to, and whether Alpha has
-// actually gone quiet. Set before config loads.
+// Riri's per-message wiring: who she is talking to. Set before config loads.
 process.env.GROQ_API_KEY = 'test-key';
-process.env.CLINGY_SILENCE_MS = '10800000'; // 3h
 
 const test = require('node:test');
 const assert = require('node:assert');
 const config = require('../utils/config');
 const { audienceLine, castMemberFor, labelFor } = require('../utils/ai');
 
-const THREE_HOURS = 10_800_000;
 const CAST = config.ai.cast;
 
 test('each of her people is named with what they are to her', () => {
@@ -31,21 +28,6 @@ test('anyone else is just a person, by name', () => {
     assert.match(audienceLine('999999999999999999', 'nova'), /nova/);
     // No name available still has to read as a sentence.
     assert.match(audienceLine(null, null), /someone else/);
-});
-
-test('Alpha is only mentioned as quiet once he actually is', () => {
-    const quiet = audienceLine('999999999999999999', 'nova', THREE_HOURS);
-    assert.match(quiet, /ALPHA HAS BEEN QUIET/);
-
-    // Just under the threshold, and unknown, are both "nothing to say about him".
-    const nearly = audienceLine('999999999999999999', 'nova', THREE_HOURS - 1);
-    assert.doesNotMatch(nearly, /ALPHA HAS BEEN QUIET/);
-    assert.doesNotMatch(audienceLine('999999999999999999', 'nova'), /ALPHA/);
-});
-
-test('the quiet-Alpha note reports the hours, not the milliseconds', () => {
-    const line = audienceLine('999999999999999999', 'nova', 6 * 60 * 60 * 1000);
-    assert.match(line, /about 6 hours/);
 });
 
 test('every cast member has a role line, so none can resolve to undefined', () => {

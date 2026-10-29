@@ -3,7 +3,6 @@ const youtubeWatcher = require('../utils/youtubeWatcher');
 const twitchWatcher = require('../utils/twitchWatcher');
 const presenceManager = require('../utils/presenceManager');
 const liveNickname = require('../utils/liveNickname');
-const clingyWatcher = require('../utils/clingyWatcher');
 const heartbeat = require('../utils/heartbeat');
 
 module.exports = {
@@ -27,7 +26,6 @@ module.exports = {
                 console.error('[LiveNick] Startup sweep failed:', err.message));
         }
 
-        clingyWatcher.start(client);
         heartbeat.start(client);
     },
 };

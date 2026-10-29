@@ -79,13 +79,6 @@ function passiveLines(client) {
         `at most once every ${Math.round(config.ai.interjectCooldownMs / 60000)} min.`
     );
 
-    lines.push(
-        `${mark(config.clingy.enabled)} **Riri sulking** — if <@${config.ai.partnerUserId}> goes quiet for ` +
-        `${Math.round(config.clingy.silenceMs / 3600000)}h she complains in her home channel, ` +
-        `and gets sharper the longer it runs. At most once every ` +
-        `${Math.round(config.clingy.cooldownMs / 86400000)} days.`
-    );
-
     const targets = reactionManager.list();
     lines.push(
         `${mark(targets.length > 0)} **${config.reactionEmojis.join(' ')} reactions** — ` +

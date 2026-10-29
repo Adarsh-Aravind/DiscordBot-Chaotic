@@ -73,10 +73,6 @@ when someone changes their nickname mid-conversation.
   goes quiet for 10 minutes per channel so the redirect can't be used to spam.
 - **Butts in uninvited** — roughly 1 message in 80 in her home channel, at most
   once every 5 minutes, and never on a message that was a command.
-- **Sulks when ignored.** If Alpha hasn't posted anywhere in the server for 3
-  hours she says so, getting sharper at 6h and 12h. Hard-limited to once every
-  2 days, and that limit is *not* reset by him turning up — otherwise a day of
-  on-and-off chatting earns several sulks.
 - **Remembers across restarts.** Her memory is persisted, so a reply to one of
   her older messages no longer gets answered as though the conversation had just
   started. Threads already past their 30-minute TTL are dropped rather than
@@ -225,7 +221,6 @@ each is actually switched on.
 |---|---|
 | Riri | Answers mentions and replies in her home channel |
 | Riri butting in | Joins conversations uninvited, on a chance and a cooldown |
-| Riri sulking | Complains when Alpha goes quiet |
 | 🇬 🇦 🇾 reactions | Spells at targeted users' non-command messages |
 | YouTube / Twitch | Announces uploads and go-lives |
 | 🔴 live nickname | Flags live streamers' nicknames |
@@ -385,7 +380,6 @@ as "nothing was ever saved".
 | `presence.json` | The presence set by `.presence` |
 | `riri-memory.json` | Conversation history per channel |
 | `riri-messages.json` | IDs of Riri's messages, so replies are recognised |
-| `clingy.json` | When Alpha last spoke, and last sulk |
 | `reaction-targets.json` | Who `.gay` is targeting |
 | `youtube-seen.json` | Already-announced video IDs |
 | `twitch-live.json` | Live stream IDs and miss counts |
@@ -454,7 +448,7 @@ source of truth.
 | `stateManager.js` | Active drags, their timers, and restoring everyone |
 | `roastManager.js` | The roast pool and its shuffle-bag picker |
 
-Watchers (`youtubeWatcher`, `twitchWatcher`, `clingyWatcher`, `heartbeat`,
+Watchers (`youtubeWatcher`, `twitchWatcher`, `heartbeat`,
 `presenceManager`) each expose `start(client)` / `stop()`, are started from
 `clientReady`, keep their own persisted state, and unref their timers so none of
 them is the reason the process stays alive.

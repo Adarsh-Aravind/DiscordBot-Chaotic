@@ -7,7 +7,6 @@ const {
 } = require('../utils/ai');
 const reactionManager = require('../utils/reactionManager');
 const roastManager = require('../utils/roastManager');
-const clingyWatcher = require('../utils/clingyWatcher');
 const { isAuthorized } = require('../utils/permissions');
 
 // Matches a leading mention of the bot: <@id> or <@!id>, optionally after
@@ -98,8 +97,7 @@ async function handleRiriChat(message, client) {
         await message.channel.sendTyping().catch(() => {});
         const reply = await generateAIResponse(memoryKey, text, {
             speakerId: message.author.id,
-            speakerName: message.member?.displayName || message.author.username,
-            alphaSilentMs: clingyWatcher.silentMs()
+            speakerName: message.member?.displayName || message.author.username
         });
         const sent = await message.reply({
             content: reply,
@@ -133,7 +131,6 @@ async function handleInterjection(message) {
         const reply = await generateAIResponse(message.channel.id, text, {
             speakerId: message.author.id,
             speakerName: message.member?.displayName || message.author.username,
-            alphaSilentMs: clingyWatcher.silentMs(),
             unprompted: true
         });
 
@@ -205,9 +202,6 @@ module.exports = {
     name: 'messageCreate',
     async execute(message, client) {
         if (message.author.bot) return;
-
-        // Resets riri's "he is ignoring me" clock. Any channel counts.
-        clingyWatcher.noteActivity(message);
 
         if (!message.guild) {
             const handled = await handleDirectMessage(message, client);

@@ -1,4 +1,3 @@
-const path = require('path');
 
 // Every server-specific ID the bot needs, in one place.
 // Each one can be overridden from .env without touching code — the values
@@ -146,9 +145,8 @@ module.exports = {
             }
         },
 
-        // The one channel riri lives in. She only answers here, and this is
-        // where she sulks when the partner goes quiet. Mentions anywhere else
-        // get a one-line redirect instead of a conversation.
+        // The one channel riri lives in. She only answers here. Mentions
+        // anywhere else get a one-line redirect instead of a conversation.
         homeChannelId: process.env.AI_HOME_CHANNEL_ID || '1322260150761033739',
 
         // How often she bothers redirecting someone who mentioned her in the
@@ -161,34 +159,6 @@ module.exports = {
 
         get interjectEnabled() {
             return envFlag(process.env.AI_INTERJECT_ENABLED) && this.enabled && this.interjectChance > 0;
-        }
-    },
-
-    // Riri noticing she is being ignored. Counts any message from the partner
-    // anywhere in the server as "he is around".
-    clingy: {
-        // Quiet for this long and she says something.
-        silenceMs: envNumber(process.env.CLINGY_SILENCE_MS, 3 * 60 * 60 * 1000),
-
-        // A hard rate limit on how often she may sulk at all. Not reset when he
-        // turns up, so this genuinely means "at most once per".
-        cooldownMs: envNumber(process.env.CLINGY_COOLDOWN_MS, 2 * 24 * 60 * 60 * 1000),
-
-        // How often to look.
-        checkIntervalMs: envNumber(process.env.CLINGY_CHECK_INTERVAL_MS, 10 * 60 * 1000),
-
-        // Ping him, or just post into the channel.
-        mention: envFlag(process.env.CLINGY_MENTION),
-
-        // Overridable so the tests never scribble on real state.
-        stateFile: process.env.CLINGY_STATE_FILE ||
-            path.join(__dirname, '..', 'data', 'clingy.json'),
-
-        get enabled() {
-            return (
-                envFlag(process.env.CLINGY_ENABLED) &&
-                Boolean(this.silenceMs > 0)
-            );
         }
     },
 
