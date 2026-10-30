@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 const config = require('./config');
-const liveNickname = require('./liveNickname');
 
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const HELIX_URL = 'https://api.twitch.tv/helix';
@@ -227,14 +226,6 @@ async function runCheck(client) {
     }
 
     if (stateChanged) saveState(state);
-
-    // Whoever is left in state is live as far as we're concerned, which carries
-    // the miss tolerance over: a single flaky reading can't strip someone's red
-    // dot and put it straight back. Awaited, but never allowed to fail the
-    // check — a nickname the bot can't change is not a broken poll.
-    await liveNickname
-        .sync(target.guild, new Set(Object.keys(state)))
-        .catch(err => console.error(`[Twitch] Nickname sync failed: ${err.message}`));
 
     return result;
 }

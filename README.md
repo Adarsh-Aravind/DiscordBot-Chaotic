@@ -114,26 +114,6 @@ fault.
 Both ping `@everyone`, with allowed-mentions pinned explicitly so a stream title
 containing a mention can't widen the ping.
 
-**Live nickname flag** — a watched streamer's server nickname gets a 🔴 prefix
-while they're live, restored exactly when they go offline.
-
-Discord and Twitch accounts can't be matched automatically, so this stays inert
-until you map them in `TWITCH_LIVE_NICKNAME_MAP`. A mapped login must **also**
-appear in `TWITCH_LOGINS`.
-
-- Reconciled on every poll rather than on the live/offline transition, so a
-  restart mid-stream still applies the dot, a stream that ended while the bot
-  was down gets it removed, and a missed event repairs itself
-- Inherits the watcher's offline tolerance, so a flaky reading can't strip
-  someone's dot and immediately restore it
-- Originals are stored rather than derived by stripping the prefix — a long name
-  is truncated to make room, and stripping it back would shorten their name
-  permanently
-- Reports at startup and in `.twitch` whether it's actually active, and why not
-  if it isn't
-
-Needs **Manage Nicknames** and a role above the target's; Discord never allows
-renaming the server owner. All three are checked up front and named in the log.
 
 ### Formula 1
 
@@ -198,11 +178,16 @@ reapplied after a reconnect since Discord drops presence on a fresh IDENTIFY.
 .presence listening The Weeknd
 .presence custom just vibing                   # no verb prefix
 .presence streaming live now | https://twitch.tv/someone
-.presence status dnd                           # online / idle / dnd / invisible
+.presence dnd                                  # online / idle / dnd / invisible
+.presence status dnd                           # same thing, spelled out
 .presence reset
 ```
 
 Verbs: `playing`, `streaming`, `listening`, `watching`, `competing`, `custom`.
+
+Statuses: `online`, `idle`, `dnd`, `invisible`. Setting one changes only the
+dot — the activity stays as it is. `invisible` reads as offline and hides the
+activity with it, which is not the same as the bot being down.
 
 Only `streaming` can carry a link, and only a `twitch.tv` or `youtube.com` one —
 Discord silently ignores the whole activity otherwise, so a link it won't render
@@ -223,7 +208,6 @@ each is actually switched on.
 | Riri butting in | Joins conversations uninvited, on a chance and a cooldown |
 | 🇬 🇦 🇾 reactions | Spells at targeted users' non-command messages |
 | YouTube / Twitch | Announces uploads and go-lives |
-| 🔴 live nickname | Flags live streamers' nicknames |
 | DM relay | Forwards DMs to `OWNER_ID`; reply with `.reply <user_id> <message>` |
 | Status heartbeat | Reports uptime, latency and counts to an external ops panel |
 
@@ -237,7 +221,7 @@ each is actually switched on.
 | Command | 🔒 | Description |
 |---|:--:|---|
 | `.help` | | Every command and passive feature, with live status |
-| `.presence [verb] [text]` | 🔒 | Set the bot's presence |
+| `.presence [verb] [text]` | 🔒 | Set the bot's presence, or its online status |
 | `.hof` | 🔒 | Add the replied-to message to the Hall of Fame |
 | `.yt` · `.yt check` | 🔒 | YouTube notifier status / force a poll |
 | `.twitch` · `.twitch check` | 🔒 | Twitch notifier status / force a poll |
@@ -318,9 +302,8 @@ Then, as needed:
 | Riri to talk | `GROQ_API_KEY` ([console.groq.com](https://console.groq.com)) |
 | DMs forwarded to you | `OWNER_ID` |
 | Twitch announcements | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` |
-| 🔴 nickname flags | `TWITCH_LIVE_NICKNAME_MAP` |
 
-`.env.example` documents all 49 variables with their defaults.
+`.env.example` documents every variable, with its default.
 
 ### Run
 
@@ -345,7 +328,6 @@ npm start
 | Kick Members | `.kick` |
 | Moderate Members | `.mute` |
 | Manage Roles | `.role` |
-| Manage Nicknames | 🔴 live nickname flag |
 | Move Members, Connect | `.drag` |
 | Mention Everyone | upload and go-live announcements |
 
@@ -383,7 +365,6 @@ as "nothing was ever saved".
 | `reaction-targets.json` | Who `.gay` is targeting |
 | `youtube-seen.json` | Already-announced video IDs |
 | `twitch-live.json` | Live stream IDs and miss counts |
-| `live-nicknames.json` | Original nicknames to restore |
 
 ---
 
@@ -486,11 +467,9 @@ off, the reason — which is usually a blank variable rather than a bug.
 | Riri doesn't respond | `GROQ_API_KEY` unset, or you're not in `AI_HOME_CHANNEL_ID`. Mentioned elsewhere she redirects once per 10 min |
 | "my brain model is gone" | `GROQ_MODEL` has been retired — check [Groq's model list](https://console.groq.com/docs/models) |
 | "i'm all talked out for today" | Daily Groq allowance exhausted |
-| No 🔴 nickname flag | `TWITCH_LIVE_NICKNAME_MAP` empty, login missing from `TWITCH_LOGINS`, or a role/permission problem. `.twitch` names which |
 | No upload announcements | `YOUTUBE_ENABLED=false`, or the announce channel isn't visible. `.yt check` reports errors directly |
 | Presence resets on restart | Check `data/` is writable; a corrupt `presence.json` is logged and falls back to the default |
 | A command is missing from `.help` | It failed to load — `.help` lists failures with the reason |
-| Nickname rename fails | The bot can't rename anyone at or above its own top role, nor the server owner |
 
 Startup logs how many commands loaded, which watchers are active, and why any
 inactive one isn't.

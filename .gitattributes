@@ -1,0 +1,12 @@
+# The repo grew a 35-CRLF / 19-LF split with no rule to settle it, which makes
+# every diff noisy and broke a few literal string edits outright.
+#
+# This only governs files from here on. To normalise what is already committed,
+# run once and commit the result:
+#     git add --renormalize .
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.ttf binary

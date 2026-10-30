@@ -10,8 +10,11 @@ module.exports = {
         const roleMention = message.mentions.roles.first();
         if (!roleMention) return message.reply('Please mention a valid role to add/remove.');
 
-        // Verify bot hierarchy
-        const botMember = message.guild.members.cache.get(message.client.user.id);
+        // Verify bot hierarchy. `members.me` rather than a cache lookup: the
+        // cache is not guaranteed to hold the bot's own member, and reading
+        // `.roles` off undefined threw instead of explaining itself. `.say`
+        // already used `members.me` for the same reason.
+        const botMember = message.guild.members.me;
         if (roleMention.position >= botMember.roles.highest.position) {
             return message.reply('I cannot manage this role as it is higher than or equal to my highest role.');
         }

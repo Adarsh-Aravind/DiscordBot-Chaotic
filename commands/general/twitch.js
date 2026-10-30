@@ -1,7 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../utils/config');
 const twitchWatcher = require('../../utils/twitchWatcher');
-const liveNickname = require('../../utils/liveNickname');
 
 /** Discord relative timestamp, or null if the feed didn't give us a usable one. */
 function relativeTime(iso) {
@@ -43,13 +42,6 @@ module.exports = {
             return `• **${entry.name || login}** — 🔴 live${since ? ` since ${since}` : ''}`;
         });
 
-        // Whether the 🔴 nickname flag is actually going to fire. This used to
-        // be invisible: an unset map looked exactly like a broken feature.
-        const nick = liveNickname.diagnose();
-        const nickStatus = nick.enabled
-            ? `✅ on for ${nick.mapped} user(s)${nick.reason ? `\n⚠️ ${nick.reason}` : ''}`
-            : `❌ off — ${nick.reason}`;
-
         const embed = new EmbedBuilder()
             .setColor('#9146FF')
             .setTitle('🔴 Twitch Notifications')
@@ -60,8 +52,7 @@ module.exports = {
                     name: 'Checks every',
                     value: `${config.twitch.pollIntervalMs / 60000} min`,
                     inline: true
-                },
-                { name: '🔴 Nickname flag', value: nickStatus, inline: false }
+                }
             )
             .setFooter({ text: 'Use .twitch check to poll right now' });
 

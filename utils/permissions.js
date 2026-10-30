@@ -21,8 +21,6 @@ function hasAllowedRole(member) {
 }
 
 module.exports = {
-    hasAllowedRole,
-
     /**
      * Whether the message author may use restricted commands.
      * Guild-only: DMs have no member, so they never pass.

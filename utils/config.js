@@ -22,16 +22,6 @@ function envNumber(raw, fallback) {
     return Number.isFinite(value) ? value : fallback;
 }
 
-/** Parses "key:value,key:value" into an object. Blank yields {}. */
-function envPairs(raw) {
-    const pairs = {};
-    for (const chunk of (raw || '').split(',')) {
-        const [key, value] = chunk.split(':').map(part => part?.trim());
-        if (key && value) pairs[key.toLowerCase()] = value;
-    }
-    return pairs;
-}
-
 module.exports = {
     prefix: process.env.PREFIX || '.',
 
@@ -217,19 +207,6 @@ module.exports = {
         // One call covers every streamer, so 2 minutes is cheap and catches
         // go-lives quickly. Helix allows far more than this.
         pollIntervalMs: Number(process.env.TWITCH_POLL_INTERVAL_MS) || 2 * 60 * 1000,
-
-        // Twitch login -> Discord user id, so going live can flag that person's
-        // nickname with a red dot. Format: "login:userId,login:userId".
-        // There is no way to derive this mapping, so the feature stays inert
-        // until you fill it in.
-        liveNicknameMap: envPairs(process.env.TWITCH_LIVE_NICKNAME_MAP),
-
-        get liveNicknameEnabled() {
-            return (
-                envFlag(process.env.TWITCH_LIVE_NICKNAME_ENABLED) &&
-                Object.keys(this.liveNicknameMap).length > 0
-            );
-        },
 
         get enabled() {
             return (

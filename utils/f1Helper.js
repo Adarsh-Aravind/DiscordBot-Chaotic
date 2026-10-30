@@ -1,5 +1,3 @@
-const { EmbedBuilder } = require('discord.js');
-
 const BASE_URL = 'https://api.jolpi.ca/ergast/f1/current';
 
 // Ergast itself was retired at the end of 2024; api.jolpi.ca is the community

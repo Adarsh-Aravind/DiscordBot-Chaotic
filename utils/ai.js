@@ -1,5 +1,4 @@
 const path = require('path');
-const axios = require('axios');
 const config = require('./config');
 const { readJson, writeJson } = require('./jsonStore');
 
@@ -297,6 +296,24 @@ function pruneMemory() {
 // budget arriving at the same answer.
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 
+/**
+ * A refusal from Groq.
+ *
+ * fetch counts a 429 as a perfectly good response, so the status has to be
+ * turned into a throw by hand. The retry loop needs the status, `retryAfterMs`
+ * needs the headers, and the error branches in generateAIResponse need the
+ * body, so all three ride along.
+ */
+class GroqError extends Error {
+    constructor(status, { headers = {}, data = null } = {}) {
+        super(data?.error?.message || `HTTP ${status}`);
+        this.name = 'GroqError';
+        this.status = status;
+        this.headers = headers;
+        this.data = data;
+    }
+}
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -305,15 +322,15 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
  * The header is seconds per the HTTP spec, but Groq sends fractional values and
  * also states the wait in the error body, so both are read.
  *
- * @param {Error} err  an axios error
+ * @param {GroqError} err
  * @returns {number|null}
  */
 function retryAfterMs(err) {
-    const seconds = Number(err.response?.headers?.['retry-after']);
+    const seconds = Number(err.headers?.['retry-after']);
     if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
 
     // "Rate limit reached ... Please try again in 2m59.56s"
-    const stated = (err.response?.data?.error?.message || '')
+    const stated = (err.data?.error?.message || '')
         .match(/try again in (?:(\d+)m)?([\d.]+)s/i);
     if (stated) return (Number(stated[1] || 0) * 60 + Number(stated[2])) * 1000;
 
@@ -333,7 +350,7 @@ function retryAfterMs(err) {
  * doesn't fit in what's left of the budget is taken at its word and thrown.
  *
  * @param {object} body  the chat-completions payload
- * @returns {Promise<import('axios').AxiosResponse>}
+ * @returns {Promise<object>} the parsed chat-completions response
  */
 async function postCompletion(body) {
     const deadline = Date.now() + config.ai.retryBudgetMs;
@@ -341,15 +358,33 @@ async function postCompletion(body) {
 
     for (;;) {
         try {
-            return await axios.post(GROQ_URL, body, {
+            const response = await fetch(GROQ_URL, {
+                method: 'POST',
                 headers: {
                     Authorization: `Bearer ${config.ai.apiKey}`,
                     'Content-Type': 'application/json',
                 },
-                timeout: config.ai.timeoutMs,
+                body: JSON.stringify(body),
+                // Node's fetch waits minutes for headers left to itself, which
+                // would hold the channel lock long after anyone stopped
+                // expecting an answer. Every other caller in here times out
+                // the same way.
+                signal: AbortSignal.timeout(config.ai.timeoutMs),
+            });
+
+            if (response.ok) return await response.json();
+
+            // Read even on a refusal: Groq states the rate-limit wait in the
+            // body as well as the header, and a malformed body shouldn't
+            // replace the status with a parse error.
+            throw new GroqError(response.status, {
+                headers: Object.fromEntries(response.headers),
+                data: await response.json().catch(() => null),
             });
         } catch (err) {
-            const status = err.response?.status;
+            // A timeout or a dropped connection has no status, so it is not in
+            // RETRY_STATUSES and falls straight through — same as before.
+            const status = err.status;
 
             // Exponential, with jitter: a room that all hit the limit on the
             // same message shouldn't come back in lockstep and trip it again.
@@ -458,7 +493,7 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
             stream: false,
         });
 
-        const choice = response?.data?.choices?.[0]?.message;
+        const choice = response?.choices?.[0]?.message;
         let reply = choice?.content?.trim();
 
         // Reasoning models put their working in a separate field and can hand
@@ -500,8 +535,8 @@ async function generateAIResponse(memoryKey, userMessage, { speakerId = null, sp
 
         return reply;
     } catch (err) {
-        const status = err.response?.status;
-        console.error('[AI ERROR]', config.ai.model, status || '', err.response?.data?.error?.message || err.message);
+        const status = err.status;
+        console.error('[AI ERROR]', config.ai.model, status || '', err.data?.error?.message || err.message);
 
         if (status === 401) return notHer("my keys got revoked apparently 💀");
         // Retried already, so a 429 reaching here is one the budget couldn't
@@ -591,5 +626,6 @@ module.exports = {
     castMemberFor,
     labelFor,
     retryAfterMs,
-    trimTurn
+    trimTurn,
+    GroqError
 };

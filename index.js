@@ -8,6 +8,7 @@ const path = require('path');
 const heartbeat = require('./utils/heartbeat');
 const presenceManager = require('./utils/presenceManager');
 const stateManager = require('./utils/stateManager');
+const { loadCommands } = require('./utils/commandLoader');
 
 const client = new Client({
     intents: [
@@ -26,46 +27,23 @@ const client = new Client({
 // Collections
 client.commands = new Collection();
 
-// Commands that could not be loaded. Kept so .help can say so out loud — a
-// command that vanishes from the list with only a startup log to explain it
-// looks like a bug in the bot.
-client.commandLoadFailures = [];
-
-// Load Commands from subfolders
-const foldersPath = path.join(__dirname, 'commands');
-const commandFolders = fs
-    .readdirSync(foldersPath, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => entry.name);
-
-for (const folder of commandFolders) {
-    const commandsPath = path.join(foldersPath, folder);
-    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-    for (const file of commandFiles) {
-        const filePath = path.join(commandsPath, file);
-        try {
-            const command = require(filePath);
-            if (!('name' in command) || !('execute' in command)) {
-                console.warn(`[WARNING] The command at ${filePath} is missing a required "name" or "execute" property.`);
-                client.commandLoadFailures.push({ file, reason: 'missing name or execute' });
-                continue;
-            }
-            if (client.commands.has(command.name)) {
-                console.warn(`[WARNING] Duplicate command name ".${command.name}" at ${filePath} — overwriting the earlier one.`);
-            }
-            // Remember the folder so .help can group commands by category.
-            command.category = folder;
-            client.commands.set(command.name, command);
-        } catch (error) {
-            console.error(`[LOAD ERROR] Could not load ${filePath}:`, error);
-            client.commandLoadFailures.push({ file, reason: error.message.split('\n')[0] });
-        }
-    }
+// Commands live in commands/<category>/*.js. The walk itself is in
+// utils/commandLoader so `.help` and the tests read the same list the bot does.
+const { commands, failures, categories } = loadCommands();
+for (const [name, command] of commands) {
+    client.commands.set(name, command);
 }
 
-console.log(`Loaded ${client.commands.size} commands from ${commandFolders.length} categories.`);
-if (client.commandLoadFailures.length > 0) {
-    console.warn(`[WARNING] ${client.commandLoadFailures.length} command(s) failed to load and will not appear in .help.`);
+// Kept on the client so .help can say so out loud — a command that vanishes
+// from the list with only a startup log to explain it looks like a bug.
+client.commandLoadFailures = failures;
+
+console.log(`Loaded ${client.commands.size} commands from ${categories.length} categories.`);
+for (const failure of failures) {
+    console.error(`[LOAD ERROR] ${failure.file}: ${failure.reason}`);
+}
+if (failures.length > 0) {
+    console.warn(`[WARNING] ${failures.length} command(s) failed to load and are listed as failures in .help.`);
 }
 
 // Load Events

@@ -22,7 +22,10 @@ function buildStatusEmbed() {
             {
                 name: 'Online status',
                 value:
-                    `\`${config.prefix}presence status <${presenceManager.STATUSES.join('|')}>\``,
+                    `\`${config.prefix}presence <${presenceManager.STATUSES.join('|')}>\` ` +
+                    `(or \`${config.prefix}presence status <…>\`)\n` +
+                    'Changes the dot only — the activity stays as it is. ' +
+                    '`invisible` reads as offline and hides the activity with it.',
                 inline: false
             },
             {
@@ -45,7 +48,9 @@ module.exports = {
     name: 'presence',
     guildOnly: true,
     restricted: true,
-    description: "Sets the bot's presence. Usage: .presence <verb> <text> | .presence reset",
+    description:
+        "Sets the bot's presence. Usage: .presence <verb> <text> | " +
+        '.presence <online|idle|dnd|invisible> | .presence reset',
     async execute(message, args) {
         // No args — show what's set and how to change it.
         if (args.length === 0) {
@@ -59,9 +64,12 @@ module.exports = {
             return message.reply(`✅ Back to default — **${presenceManager.describe()}**`);
         }
 
-        // `.presence status dnd` changes only the online dot, keeping the activity.
-        if (sub === 'status') {
-            const wanted = args[1]?.toLowerCase();
+        // Changes only the online dot, keeping the activity. Written either as
+        // `.presence status dnd` or just `.presence dnd` — the status names
+        // don't collide with any verb, and the bare form is what people
+        // actually type.
+        if (sub === 'status' || presenceManager.STATUSES.includes(sub)) {
+            const wanted = sub === 'status' ? args[1]?.toLowerCase() : sub;
             if (!presenceManager.STATUSES.includes(wanted)) {
                 return message.reply(
                     `⚠️ Pick one of: ${presenceManager.STATUSES.map(s => `\`${s}\``).join(', ')}`
@@ -76,6 +84,7 @@ module.exports = {
         if (!VERBS.includes(sub)) {
             return message.reply(
                 `⚠️ Unknown verb \`${sub}\`. Try: ${VERBS.map(v => `\`${v}\``).join(', ')}\n` +
+                `Or a status on its own: ${presenceManager.STATUSES.map(s => `\`${s}\``).join(', ')}\n` +
                 `Run \`${config.prefix}presence\` on its own to see the current one.`
             );
         }

@@ -1,6 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
 const config = require('../../utils/config');
-const liveNickname = require('../../utils/liveNickname');
 const reactionManager = require('../../utils/reactionManager');
 
 // Nicer titles than the raw folder names, and the order they appear in.
@@ -58,7 +57,7 @@ function chunkLines(lines, limit = FIELD_LIMIT) {
  * Everything the bot does without being asked, with whether it is actually
  * switched on. The state matters more than the description: a feature listed
  * flatly as present, while its env var is blank and it silently does nothing,
- * is what made the live-nickname flag look broken rather than unconfigured.
+ * is indistinguishable from a feature that is simply switched off.
  *
  * @param {import('discord.js').Client} client
  * @returns {string[]}
@@ -98,12 +97,6 @@ function passiveLines(client) {
         `${Math.round(config.twitch.pollIntervalMs / 60000)} min. Pings @everyone.`
     );
 
-    const nick = liveNickname.diagnose();
-    lines.push(
-        `${mark(nick.enabled)} **🔴 live nickname** — prefixes a live streamer's nickname` +
-        (nick.enabled ? `, ${nick.mapped} user(s) mapped.` : `. ${nick.reason}.`)
-    );
-
     lines.push(
         `${mark(Boolean(config.ownerId))} **DM relay** — DMs to the bot are forwarded to the owner` +
         (config.ownerId ? '.' : ' (no `OWNER_ID` set).')
@@ -119,7 +112,6 @@ function passiveLines(client) {
 module.exports = {
     name: 'help',
     chunkLines,
-    passiveLines,
     description: 'Lists all available commands.',
     async execute(message, args, client) {
         const grouped = new Map();
@@ -165,7 +157,11 @@ module.exports = {
                     a.name.localeCompare(b.name))
                 .map(cmd => {
                     const lock = cmd.restricted ? ' 🔒' : '';
-                    return `\`${config.prefix}${cmd.name}\`${lock} — ${cmd.description}`;
+                    // A command only needs `name` and `execute` to load, so a
+                    // missing description used to render the word "undefined"
+                    // against it. Say it's undocumented instead.
+                    const description = cmd.description || '*no description*';
+                    return `\`${config.prefix}${cmd.name}\`${lock} — ${description}`;
                 });
 
             const label = CATEGORY_LABELS[category] || category;

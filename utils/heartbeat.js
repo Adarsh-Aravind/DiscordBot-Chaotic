@@ -115,4 +115,6 @@ function stop() {
     timer = null;
 }
 
-module.exports = { start, stop, farewell, buildPayload };
+// `stop` stays internal — farewell() is the only caller, and it owns the
+// ordering (stop the timer, then send the final ping).
+module.exports = { start, farewell, buildPayload };
