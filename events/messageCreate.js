@@ -5,6 +5,7 @@ const {
     isRiriMessage,
     shouldInterject
 } = require('../utils/ai');
+const chatGate = require('../utils/chatGate');
 const reactionManager = require('../utils/reactionManager');
 const roastManager = require('../utils/roastManager');
 const { isAuthorized } = require('../utils/permissions');
@@ -71,6 +72,14 @@ async function redirectToHomeChannel(message) {
         .catch(err => console.error('[AI REDIRECT ERROR]', err.message));
 }
 
+// What she does instead of answering, when answering isn't worth a Groq call.
+// A reaction costs nothing, lands instantly and still says she saw it.
+const IGNORED_REACTIONS = {
+    duplicate: '🥱',   // you said that already
+    flood: '🙄',       // you are typing faster than anyone can care
+    budget: '😮‍💨'      // the room has had its fill for the minute
+};
+
 async function handleRiriChat(message, client) {
     const text = resolveRiriPrompt(message, client);
     if (text === null) return false;
@@ -88,6 +97,21 @@ async function handleRiriChat(message, client) {
         return true;
     }
 
+    // Is this worth spending a Groq call on? The same line again, or one
+    // person firing off five in a row, is not: every call carries her whole
+    // prompt plus the channel's history, and a spammer burning through the
+    // per-minute token limit takes the rest of the room down with them.
+    const verdict = chatGate.admit(message.author.id, text);
+    if (!verdict.ok) {
+        // Only the first refusal of a burst gets a reaction. Ten of them would
+        // just be the spam again in a different colour.
+        if (verdict.acknowledge) {
+            await message.react(IGNORED_REACTIONS[verdict.reason]).catch(() => {});
+        }
+        console.log(`[AI] Skipped a ${verdict.reason} from ${message.author.tag}.`);
+        return true;
+    }
+
     // Keyed by channel, not by channel+user: everyone in here shares one
     // conversation, so someone chiming in on what another person said carries
     // on the same thread instead of starting a private one.
@@ -99,6 +123,22 @@ async function handleRiriChat(message, client) {
             speakerId: message.author.id,
             speakerName: message.member?.displayName || message.author.username
         });
+
+        // Nothing worth sending: this line was superseded by a newer one while
+        // she was still answering the last, or she has already said out loud
+        // that she's rate limited and repeating it would only be noise. Seen,
+        // not answered — which is the honest version of what happened.
+        if (!reply) {
+            // The gate recorded this line as said when it let it through, so
+            // without this the only thing they could do about a 👀 — ask
+            // again — came back a duplicate, and they were stuck. Hands the
+            // room's budget slot back too: no call was made with it.
+            chatGate.forget(message.author.id, text, verdict.at);
+
+            await message.react('👀').catch(() => {});
+            return true;
+        }
+
         const sent = await message.reply({
             content: reply,
             allowedMentions: { repliedUser: true, parse: [] }
@@ -126,6 +166,14 @@ async function handleInterjection(message) {
     if (text.length < MIN_INTERJECT_LENGTH) return;
     if (!shouldInterject(message.channel.id)) return;
 
+    // The people who actually mentioned her have first claim on the minute's
+    // allowance, so butting in only happens with room to spare. Checked after
+    // the roll on purpose: losing here spends the win and puts her back on
+    // cooldown, rather than leaving her re-rolling on every message while the
+    // budget is full.
+    const slot = Date.now();
+    if (!chatGate.reserve(slot)) return;
+
     try {
         await message.channel.sendTyping().catch(() => {});
         const reply = await generateAIResponse(message.channel.id, text, {
@@ -138,7 +186,14 @@ async function handleInterjection(message) {
         // is simply spent and she stays quiet — better than butting in with an
         // apology for the rate limit. The cooldown was stamped when the roll
         // was won, so this doesn't open the channel up to another go.
-        if (!reply) return;
+        //
+        // The minute's allowance is a different matter: it was reserved for a
+        // call that never happened, and holding it would refuse someone who
+        // actually did mention her. That goes back.
+        if (!reply) {
+            chatGate.release(slot);
+            return;
+        }
 
         const sent = await message.reply({
             content: reply,

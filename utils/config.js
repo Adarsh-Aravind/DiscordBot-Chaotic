@@ -72,7 +72,11 @@ module.exports = {
         // How many past messages to carry as context. This is one shared thread
         // per channel rather than one per person, so it needs more room than it
         // used to — a handful of turns disappears fast with several people in it.
-        memoryTurns: Number(process.env.AI_MEMORY_TURNS) || 14,
+        //
+        // Every one of them is resent on every call, though, and tokens per
+        // minute is the limit riri actually runs into. Ten turns is still a
+        // readable thread and costs a third less than fourteen did.
+        memoryTurns: Number(process.env.AI_MEMORY_TURNS) || 10,
 
         // Replies are 1-2 lines by design, so this stays small and fast.
         maxTokens: Number(process.env.AI_MAX_TOKENS) || 120,
@@ -91,6 +95,26 @@ module.exports = {
         // through. 0 retries switches it off.
         maxRetries: envNumber(process.env.AI_MAX_RETRIES, 2),
         retryBudgetMs: envNumber(process.env.AI_RETRY_BUDGET_MS, 3000),
+
+        // Spam control, and the real cure for the 429 above. One person firing
+        // the same word ten times used to be ten requests carrying the whole
+        // prompt each, which is what put the room over Groq's per-minute token
+        // limit and had her answering "slow down, i need a sec" to "Hello".
+        //
+        // floodMax messages from one person inside floodWindowMs is a flood.
+        // The same line again inside duplicateWindowMs is a duplicate. Neither
+        // buys a call. callsPerMinute is the ceiling for the whole room, set
+        // under Groq's own so the rate limit is never reached in the first
+        // place — a refusal we decide on is free, a 429 is not.
+        floodWindowMs: envNumber(process.env.AI_FLOOD_WINDOW_MS, 20 * 1000),
+        floodMax: envNumber(process.env.AI_FLOOD_MAX, 4),
+        duplicateWindowMs: envNumber(process.env.AI_DUPLICATE_WINDOW_MS, 90 * 1000),
+        callsPerMinute: envNumber(process.env.AI_CALLS_PER_MINUTE, 10),
+
+        // How often she is allowed to say out loud that something went wrong.
+        // The apology lines are word-for-word identical every time, so five in
+        // a row reads far worse than one of them and then silence.
+        excuseCooldownMs: envNumber(process.env.AI_EXCUSE_COOLDOWN_MS, 60 * 1000),
 
         // Riri butting in unprompted. The chance is rolled per eligible message;
         // the cooldown stops her dominating a busy channel. Set the chance to 0

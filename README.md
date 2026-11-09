@@ -82,13 +82,36 @@ when someone changes their nickname mid-conversation.
   A random mood is injected per message so her contradictions don't all fire at
   once.
 
-**Reliability.** One generation at a time per channel, so a busy room can't
-queue a dozen parallel API calls. Rate limits are ridden out inside the request
-with exponential backoff and jitter against a short budget, honouring Groq's
-`Retry-After`. A burst limit, an exhausted daily allowance, a revoked key and a
-retired model each produce a different, in-character message — Groq retires
-models often, so a dead `GROQ_MODEL` says so instead of looking like a network
-fault.
+**Doesn't feed spammers.** Every reply costs a request carrying her whole
+prompt plus the channel's history, so the cheapest way to stay under Groq's
+per-minute limit is not to make the call. Three kinds of message don't:
+
+| | | |
+|---|---|---|
+| The same line again from the same person | within `AI_DUPLICATE_WINDOW_MS` | 🥱 |
+| More than `AI_FLOOD_MAX` messages from one person | within `AI_FLOOD_WINDOW_MS` | 🙄 |
+| Anything, once the room has spent `AI_CALLS_PER_MINUTE` | within the minute | 😮‍💨 |
+
+Only the first refusal of a burst is reacted to; the rest are ignored outright.
+Ten "Hello"s in a row therefore cost one reply and one shrug, not ten requests.
+Repeating a line also replaces the exchange it got last time in her memory
+rather than stacking another copy of it — a wall of identical turns is what she
+reads as a situation escalating.
+
+**Replies in order.** One generation at a time per channel, so a busy room
+can't queue a dozen parallel API calls. A line that arrives mid-answer waits
+its turn, and a newer one supersedes it: a burst gets an answer to the first
+thing said and to the last, in that order. It used to hand the waiting message
+a canned "wait… let me finish" instantly, which landed *before* the real reply
+and made a busy channel read as though she were answering at random.
+
+**Reliability.** Rate limits are ridden out inside the request with exponential
+backoff and jitter against a short budget, honouring Groq's `Retry-After`. A
+burst limit, an exhausted daily allowance, a revoked key and a retired model
+each produce a different, in-character message — Groq retires models often, so
+a dead `GROQ_MODEL` says so instead of looking like a network fault. Those
+lines are word-for-word identical every time, so each is said at most once per
+`AI_EXCUSE_COOLDOWN_MS` per channel and later messages get a 👀 instead.
 
 ### Notifications
 
@@ -467,6 +490,9 @@ off, the reason — which is usually a blank variable rather than a bug.
 | Riri doesn't respond | `GROQ_API_KEY` unset, or you're not in `AI_HOME_CHANNEL_ID`. Mentioned elsewhere she redirects once per 10 min |
 | "my brain model is gone" | `GROQ_MODEL` has been retired — check [Groq's model list](https://console.groq.com/docs/models) |
 | "i'm all talked out for today" | Daily Groq allowance exhausted |
+| "slow down, i need a sec" | Over Groq's per-minute limit. If it's frequent, lower `AI_CALLS_PER_MINUTE` or `AI_MEMORY_TURNS` — the history is resent on every call |
+| She reacts 🥱 🙄 😮‍💨 instead of replying | Deliberate: the message was a duplicate, a flood, or over the room's per-minute budget |
+| She reacts 👀 instead of replying | A newer message overtook that one, or she'd already said she was rate limited |
 | No upload announcements | `YOUTUBE_ENABLED=false`, or the announce channel isn't visible. `.yt check` reports errors directly |
 | Presence resets on restart | Check `data/` is writable; a corrupt `presence.json` is logged and falls back to the default |
 | A command is missing from `.help` | It failed to load — `.help` lists failures with the reason |
